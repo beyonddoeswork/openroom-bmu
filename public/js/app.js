@@ -280,7 +280,7 @@ function LoginView() {
       <form id="userLoginForm">
         <div class="form-field">
           <label>Login Email</label>
-          <input type="text" id="loginEmail" required placeholder="admin@openroom.edu or student@openroom.xyz">
+          <input type="text" id="loginEmail" required placeholder="student@openroom.xyz">
         </div>
         <div class="form-field">
           <label>Password</label>
