@@ -8,7 +8,7 @@ const bcrypt = require('bcryptjs');
 
 const connectDB = require('./src/config/db');
 const { initBackgroundJobs } = require('./src/services/cronService');
-const { notFoundHandler, errorHandler } = require('./src/middleware/errorHandler');
+const { errorHandler } = require('./src/middleware/errorHandler');
 
 const roomRoutes = require('./src/routes/roomRoutes');
 const authRoutes = require('./src/routes/authRoutes');
@@ -28,16 +28,16 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Rate limiter for security
+// Serve Frontend Static Assets (CSS, JS, Images)
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Rate limiter for API security
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 300,
   message: { success: false, message: 'Too many requests from this IP. Please try again later.' }
 });
 app.use('/api', limiter);
-
-// Serve Frontend Static Assets
-app.use(express.static(path.join(__dirname, 'public')));
 
 // Mount API Endpoints
 app.use('/api/rooms', roomRoutes);
@@ -50,22 +50,29 @@ app.use('/api/admin', adminRoutes);
 async function seedInitialData() {
   try {
     const adminEmail = (process.env.ADMIN_EMAIL || 'admin@openroom.edu').toLowerCase().trim();
-    const adminPassword = process.env.ADMIN_PASSWORD || 'Admin@BMU2026!';
-    const hashedPassword = await bcrypt.hash(adminPassword, 10);
+    const existingAdmin = await User.findOne({ email: adminEmail });
 
-    // Force create or update the admin account so login never fails
-    await User.findOneAndUpdate(
-      { email: adminEmail },
-      {
-        name: 'BMU Administrator',
+    if (!existingAdmin) {
+      const adminPassword = process.env.ADMIN_PASSWORD || 'Admin@BMU2026!';
+      const hashedPassword = await bcrypt.hash(adminPassword, 10);
+
+      await User.create({
+        name: 'BMU Campus Administrator',
         email: adminEmail,
         password: hashedPassword,
         role: 'admin',
-        mobile: '+91 124 267 1700'
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
-    console.log(`[Seed] ✅ Admin Account Synced: ${adminEmail}`);
+        mobile: '+91 124 267 1700',
+        branch: 'Administration',
+        batchYear: 'Staff',
+        avatarColor: '#131D35',
+        bio: 'Official OpenRoom System Administrator',
+        twoFactorEnabled: false,
+        twoFactorSecret: null
+      });
+      console.log(`[Seed] ✅ Admin account initialized: ${adminEmail}`);
+    } else {
+      console.log(`[Seed] 🔒 Admin account verified (${adminEmail}). Active 2FA: ${existingAdmin.twoFactorEnabled ? 'ENABLED' : 'PENDING'}`);
+    }
 
     const roomCount = await Room.countDocuments();
     if (roomCount === 0) {
@@ -103,16 +110,15 @@ async function seedInitialData() {
   }
 }
 
-// SPA HTML Fallback (Catches all non-API routes)
+// SPA HTML Fallback (Catches all non-API routes and sends index.html)
 app.get('*', (req, res, next) => {
   if (req.originalUrl.startsWith('/api')) {
-    return next();
+    return res.status(404).json({ success: false, message: 'API route not found' });
   }
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // Centralized Error Handling Middleware
-app.use(notFoundHandler);
 app.use(errorHandler);
 
 // Production Async Server Bootstrapper
@@ -127,11 +133,11 @@ async function startServer() {
     // 3. Start auto-reset cron service (releases busy rooms back to empty)
     initBackgroundJobs();
 
-    // 4. Start HTTP Server
-    app.listen(PORT, () => {
+    // 4. Start HTTP Server (Binding to 0.0.0.0 for cloud hosting)
+    app.listen(PORT, '0.0.0.0', () => {
       console.log(`=======================================================`);
       console.log(`⚡ OpenRoom Production Server Active`);
-      console.log(`🌐 URL: http://localhost:${PORT}`);
+      console.log(`🌐 Port: ${PORT}`);
       console.log(`👨‍💼 Admin Login: ${process.env.ADMIN_EMAIL || 'admin@openroom.edu'}`);
       console.log(`🔑 Admin Pass:  ${process.env.ADMIN_PASSWORD || 'Admin@BMU2026!'}`);
       console.log(`=======================================================`);
