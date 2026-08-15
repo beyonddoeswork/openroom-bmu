@@ -2,3 +2,5 @@ node_modules/
 .env
 admin_2fa.json
 *.log
+Day_Scholars_Requests_latest
+Day_Scholars_Requests
