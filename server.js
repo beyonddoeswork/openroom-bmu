@@ -8,7 +8,6 @@ const bcrypt = require('bcryptjs');
 
 const connectDB = require('./src/config/db');
 const { initBackgroundJobs } = require('./src/services/cronService');
-const { errorHandler } = require('./src/middleware/errorHandler');
 
 const roomRoutes = require('./src/routes/roomRoutes');
 const authRoutes = require('./src/routes/authRoutes');
@@ -21,17 +20,18 @@ const User = require('./src/models/User');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const PUBLIC_DIR = path.resolve(__dirname, 'public');
 
-// Security Middlewares
+// Security & Parsing Middlewares
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve Frontend Static Assets (CSS, JS, Images)
-app.use(express.static(path.join(__dirname, 'public')));
+// 1. Explicitly serve static assets
+app.use(express.static(PUBLIC_DIR));
 
-// Rate limiter for API security
+// 2. API Rate Limiter
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 300,
@@ -39,14 +39,14 @@ const limiter = rateLimit({
 });
 app.use('/api', limiter);
 
-// Mount API Endpoints
+// 3. Mount API Endpoints
 app.use('/api/rooms', roomRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/admin', adminRoutes);
 
-// Seed Default Admin & Campus Rooms
+// 4. Seed Initial Admin & Campus Rooms
 async function seedInitialData() {
   try {
     const adminEmail = (process.env.ADMIN_EMAIL || 'admin@openroom.edu').toLowerCase().trim();
@@ -71,7 +71,7 @@ async function seedInitialData() {
       });
       console.log(`[Seed] ✅ Admin account initialized: ${adminEmail}`);
     } else {
-      console.log(`[Seed] 🔒 Admin account verified (${adminEmail}). Active 2FA: ${existingAdmin.twoFactorEnabled ? 'ENABLED' : 'PENDING'}`);
+      console.log(`[Seed] 🔒 Admin account verified (${adminEmail}).`);
     }
 
     const roomCount = await Room.countDocuments();
@@ -110,36 +110,30 @@ async function seedInitialData() {
   }
 }
 
-// SPA HTML Fallback (Catches all non-API routes and sends index.html)
-app.get('*', (req, res, next) => {
+// 5. Explicit Root and Catch-All Handler (Ensures index.html always loads)
+app.get('/', (req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
+});
+
+app.get('*', (req, res) => {
   if (req.originalUrl.startsWith('/api')) {
     return res.status(404).json({ success: false, message: 'API route not found' });
   }
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
 
-// Centralized Error Handling Middleware
-app.use(errorHandler);
-
-// Production Async Server Bootstrapper
+// 6. Async Server Bootstrapper
 async function startServer() {
   try {
-    // 1. Establish database connection first
     await connectDB();
-
-    // 2. Guarantee admin & initial data are seeded in DB
     await seedInitialData();
-
-    // 3. Start auto-reset cron service (releases busy rooms back to empty)
     initBackgroundJobs();
 
-    // 4. Start HTTP Server (Binding to 0.0.0.0 for cloud hosting)
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`=======================================================`);
       console.log(`⚡ OpenRoom Production Server Active`);
       console.log(`🌐 Port: ${PORT}`);
-      console.log(`👨‍💼 Admin Login: ${process.env.ADMIN_EMAIL || 'admin@openroom.edu'}`);
-      console.log(`🔑 Admin Pass:  ${process.env.ADMIN_PASSWORD || 'Admin@BMU2026!'}`);
+      console.log(`📂 Public Directory: ${PUBLIC_DIR}`);
       console.log(`=======================================================`);
     });
   } catch (err) {
