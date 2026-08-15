@@ -1,0 +1,4 @@
+node_modules/
+.env
+admin_2fa.json
+*.log

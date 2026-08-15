@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenRoom — BML Munjal University Day Scholar Portal</title>
+  
+  <!-- Browser Favicon & Touch Icons -->
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/favicon.png">
+  <link rel="shortcut icon" href="/favicon.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body class="blueprint-bg">
+
+<div id="appRoot">
+  <header class="site-header">
+    <div class="header-content">
+      <a class="brand-link" data-route="#/">
+        <!-- Scalable Production Blueprint Logo -->
+        <svg class="brand-logo-svg" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="48" height="48" rx="12" fill="#131D35"/>
+          <rect x="10" y="10" width="28" height="28" rx="6" stroke="#118A5E" stroke-width="2.5" stroke-dasharray="4 2"/>
+          <path d="M18 30V18L26 22V34L18 30Z" fill="#118A5E"/>
+          <circle cx="32" cy="18" r="3" fill="#DC9222"/>
+        </svg>
+        <span>OpenRoom</span>
+        <span style="font-family:var(--font-mono); font-size:12px; color:var(--ink-soft); font-weight:400; margin-left:2px;">BMU</span>
+      </a>
+      <nav class="main-nav" id="navBar"></nav>
+    </div>
+  </header>
+
+  <main id="viewPort"></main>
+
+  <footer style="border-top:1px solid var(--line); background:#ffffff; padding:24px; text-align:center; font-size:13px; color:var(--ink-soft); margin-top:auto;">
+    <p>OpenRoom &bull; BML Munjal University Day Scholar Campus Life &amp; Empty Classroom Finder.</p>
+  </footer>
+</div>
+
+<div id="toastHost"></div>
+
+<script src="/js/app.js"></script>
+</body>
+</html>
