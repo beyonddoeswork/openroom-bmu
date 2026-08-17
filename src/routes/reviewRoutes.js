@@ -14,6 +14,7 @@ router.get('/', async (req, res) => {
 });
 
 // 2. Submit Review / Feature Suggestion (Students & Authenticated Users)
+// Bug Fixes Pending.
 router.post('/', verifyToken, async (req, res) => {
   try {
     const { kind, body } = req.body;
