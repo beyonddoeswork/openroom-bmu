@@ -22,6 +22,9 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.resolve(__dirname, 'public');
 
+// Trust reverse proxy (Required for Render, Heroku & express-rate-limit)
+app.set('trust proxy', 1);
+
 // Security & Parsing Middlewares
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());
@@ -31,10 +34,12 @@ app.use(express.urlencoded({ extended: true }));
 // 1. Explicitly serve static assets
 app.use(express.static(PUBLIC_DIR));
 
-// 2. API Rate Limiter
+// 2. API Rate Limiter (with modern standard headers)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
   message: { success: false, message: 'Too many requests from this IP. Please try again later.' }
 });
 app.use('/api', limiter);

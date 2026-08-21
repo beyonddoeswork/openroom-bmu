@@ -359,11 +359,11 @@ router.put('/profile', verifyToken, async (req, res) => {
 // 6. Change Password
 router.post('/change-password', verifyToken, async (req, res) => {
   try {
-    const { currentPassword, newPassword } = req.body;
+    const { currentPassword, newPassword, alreadyPass } = req.body;
     if (!newPassword || newPassword.length < 6) {
       return res.status(400).json({ success: false, message: 'New password must be at least 6 characters.' });
     }
-
+    
     const user = await User.findById(req.user.id);
     const isMatch = await bcrypt.compare(currentPassword, user.password);
     if (!isMatch) {
