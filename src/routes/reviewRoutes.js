@@ -3,97 +3,183 @@ const router = express.Router();
 const Review = require('../models/Review');
 const { verifyToken, verifyAdmin } = require('../middleware/auth');
 
-// 1. Fetch all active reviews/ideas (auto-filtered for active items)
+// 1. GET all reviews & discussions
 router.get('/', async (req, res) => {
   try {
-    const reviews = await Review.find().sort({ createdAt: -1 });
+    const reviews = await Review.find().sort({ isPinned: -1, score: -1, createdAt: -1 }).lean();
     res.json({ success: true, data: reviews });
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Failed to fetch reviews.' });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// 2. Submit Review / Feature Suggestion (Students & Authenticated Users)
-// Bug Fixes Pending.
+// 2. POST create a new thread / review
 router.post('/', verifyToken, async (req, res) => {
   try {
-    const { kind, body } = req.body;
-    if (!body || body.trim().length === 0) {
-      return res.status(400).json({ success: false, message: 'Message body cannot be empty.' });
+    const { body, kind, tag } = req.body;
+    if (!body || !body.trim()) {
+      return res.status(400).json({ success: false, message: 'Message content cannot be empty.' });
     }
 
     const review = await Review.create({
-      author: req.user.name,
+      author: req.user.name || 'BMU Day Scholar',
       authorEmail: req.user.email,
       authorRole: req.user.role || 'student',
-      kind: kind === 'suggestion' ? 'suggestion' : 'review',
-      body: body.trim()
+      avatarColor: req.user.avatarColor || '#131D35',
+      kind: kind || 'review',
+      tag: tag || 'General',
+      body: body.trim(),
+      comments: []
     });
 
-    res.status(201).json({ success: true, message: 'Feedback posted successfully!', data: review });
+    res.status(201).json({ success: true, data: review });
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Failed to submit review.' });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// 3. Admin: Respond to an Idea or Review
-router.post('/:id/reply', verifyAdmin, async (req, res) => {
+// 3. POST add a comment / reply to a thread
+router.post('/:id/comments', verifyToken, async (req, res) => {
   try {
-    const { message } = req.body;
-    if (!message || message.trim().length === 0) {
-      return res.status(400).json({ success: false, message: 'Reply message cannot be empty.' });
+    const { body } = req.body;
+    if (!body || !body.trim()) {
+      return res.status(400).json({ success: false, message: 'Reply cannot be empty.' });
     }
 
     const review = await Review.findById(req.params.id);
     if (!review) {
-      return res.status(404).json({ success: false, message: 'Review not found.' });
+      return res.status(404).json({ success: false, message: 'Discussion thread not found.' });
     }
+
+    const comment = {
+      author: req.user.name || 'Day Scholar',
+      authorEmail: req.user.email,
+      authorRole: req.user.role || 'student',
+      avatarColor: req.user.avatarColor || '#131D35',
+      body: body.trim(),
+      createdAt: new Date()
+    };
+
+    review.comments.push(comment);
+    await review.save();
+
+    res.status(201).json({ success: true, data: review });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 4. POST upvote a thread
+router.post('/:id/vote', verifyToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email;
+    const review = await Review.findById(req.params.id);
+    if (!review) {
+      return res.status(404).json({ success: false, message: 'Discussion thread not found.' });
+    }
+
+    const hasUpvoted = review.upvotes.includes(userEmail);
+    if (hasUpvoted) {
+      review.upvotes = review.upvotes.filter((e) => e !== userEmail);
+    } else {
+      review.upvotes.push(userEmail);
+      review.downvotes = review.downvotes.filter((e) => e !== userEmail);
+    }
+
+    review.score = review.upvotes.length - review.downvotes.length;
+    await review.save();
+
+    res.json({ success: true, score: review.score, upvoted: !hasUpvoted });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 5. POST official Admin reply
+router.post('/:id/reply', verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const { message } = req.body;
+    const review = await Review.findById(req.params.id);
+    if (!review) return res.status(404).json({ success: false, message: 'Thread not found.' });
 
     review.adminReply = {
       message: message.trim(),
       repliedBy: req.user.name || 'BMU Administrator',
       repliedAt: new Date()
     };
-    await review.save();
 
-    res.json({ success: true, message: 'Admin reply posted!', data: review });
+    await review.save();
+    res.json({ success: true, data: review });
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Failed to post admin reply.' });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// 4. Admin: Mark as Noted (Queued for 1-Hour Auto-Purge)
-router.post('/:id/note', verifyAdmin, async (req, res) => {
+// 6. POST mark thread as noted
+router.post('/:id/note', verifyToken, verifyAdmin, async (req, res) => {
   try {
     const review = await Review.findById(req.params.id);
-    if (!review) {
-      return res.status(404).json({ success: false, message: 'Review not found.' });
-    }
+    if (!review) return res.status(404).json({ success: false, message: 'Thread not found.' });
 
     review.isNoted = true;
     review.notedAt = new Date();
     await review.save();
 
-    res.json({
-      success: true,
-      message: 'Review marked as Noted. It will automatically be cleaned up in 1 hour to optimize database storage.',
-      data: review
-    });
+    res.json({ success: true, message: 'Marked as noted.' });
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Failed to mark review as noted.' });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// 5. Admin: Manually Delete Review
-router.delete('/:id', verifyAdmin, async (req, res) => {
+// 7. DELETE thread (Author or Admin)
+router.delete('/:id', verifyToken, async (req, res) => {
   try {
-    const review = await Review.findByIdAndDelete(req.params.id);
+    const review = await Review.findById(req.params.id);
     if (!review) {
-      return res.status(404).json({ success: false, message: 'Review not found.' });
+      return res.status(404).json({ success: false, message: 'Thread not found.' });
     }
-    res.json({ success: true, message: 'Review removed successfully.' });
+
+    // Allow deletion if user is an Admin OR the original post author
+    const isOwner = review.authorEmail && req.user.email && review.authorEmail.toLowerCase() === req.user.email.toLowerCase();
+    const isAdmin = req.user.role === 'admin';
+
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ success: false, message: 'You are not authorized to delete this post.' });
+    }
+
+    await Review.findByIdAndDelete(req.params.id);
+    res.json({ success: true, message: 'Post deleted successfully.' });
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Failed to delete review.' });
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 8. DELETE comment (Comment Author or Admin)
+router.delete('/:id/comments/:commentId', verifyToken, async (req, res) => {
+  try {
+    const review = await Review.findById(req.params.id);
+    if (!review) {
+      return res.status(404).json({ success: false, message: 'Thread not found.' });
+    }
+
+    const comment = review.comments.id(req.params.commentId);
+    if (!comment) {
+      return res.status(404).json({ success: false, message: 'Comment not found.' });
+    }
+
+    const isCommentOwner = comment.authorEmail && req.user.email && comment.authorEmail.toLowerCase() === req.user.email.toLowerCase();
+    const isAdmin = req.user.role === 'admin';
+
+    if (!isCommentOwner && !isAdmin) {
+      return res.status(403).json({ success: false, message: 'You are not authorized to delete this reply.' });
+    }
+
+    comment.deleteOne();
+    await review.save();
+
+    res.json({ success: true, message: 'Reply deleted successfully.' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 

@@ -330,3 +330,19 @@ h1.hero-title span { color: var(--open); font-style: italic; }
   50% { transform: scale(1.1) rotate(15deg); }
   100% { transform: scale(1) rotate(0deg); }
 }
+
+/* Reddit-style Community Thread Cards */
+.thread-card {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.thread-card:hover {
+  border-color: #CBD5E1;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+}
+.vote-btn {
+  transition: transform 0.1s ease, color 0.1s ease;
+}
+.vote-btn:hover {
+  transform: translateY(-2px);
+  color: #118A5E !important;
+}

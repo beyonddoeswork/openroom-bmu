@@ -22,7 +22,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.resolve(__dirname, 'public');
 
-// Trust reverse proxy (Required for Render, Heroku & express-rate-limit)
+// Trust reverse proxy (Required for Render & express-rate-limit)
 app.set('trust proxy', 1);
 
 // Security & Parsing Middlewares
@@ -34,7 +34,7 @@ app.use(express.urlencoded({ extended: true }));
 // 1. Explicitly serve static assets
 app.use(express.static(PUBLIC_DIR));
 
-// 2. API Rate Limiter (with modern standard headers)
+// 2. API Rate Limiter
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 300,
@@ -81,17 +81,29 @@ async function seedInitialData() {
 
     const roomCount = await Room.countDocuments();
     if (roomCount === 0) {
-      const BUILDINGS = ['Block A', 'Block B', 'Block C', 'Central Library', 'Innovation Hub'];
+      const BUILDINGS = ['E-2 Building', 'Gateway Building', 'Central Library', 'Innovation Hub'];
       const TYPES = ['Classroom', 'Seminar Hall', 'Study Pod', 'Computer Lab', 'Discussion Room'];
       const batch = [];
 
       BUILDINGS.forEach((b, bi) => {
-        const prefix = b === 'Central Library' ? 'LIB' : b === 'Innovation Hub' ? 'IH' : 'B' + String.fromCharCode(65 + bi);
-        const floors = b === 'Central Library' ? 2 : 3;
+        let prefix = 'E2-';
+        let floors = 3;
+
+        if (b === 'Gateway Building') {
+          prefix = 'GW-';
+          floors = 3;
+        } else if (b === 'Central Library') {
+          prefix = 'LIB-';
+          floors = 2;
+        } else if (b === 'Innovation Hub') {
+          prefix = 'IH-';
+          floors = 3;
+        }
+
         for (let f = 1; f <= floors; f++) {
           const roomsOnFloor = b === 'Innovation Hub' ? 3 : 4;
           for (let r = 1; r <= roomsOnFloor; r++) {
-            const code = prefix + f + String(r).padStart(2, '0');
+            const code = `${prefix}${f}${String(r).padStart(2, '0')}`;
             const type = TYPES[(bi + f + r) % TYPES.length];
             const capacity = type === 'Study Pod' ? 6 : type === 'Seminar Hall' ? 60 : 35;
             batch.push({
@@ -108,7 +120,7 @@ async function seedInitialData() {
         }
       });
       await Room.insertMany(batch);
-      console.log(`[Seed] ✅ Campus directory seeded (${batch.length} rooms).`);
+      console.log(`[Seed] ✅ Campus directory seeded with new buildings (${batch.length} rooms).`);
     }
   } catch (err) {
     console.error('[Seed Error]', err.message);

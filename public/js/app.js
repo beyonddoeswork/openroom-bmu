@@ -1,14 +1,15 @@
 /**
  * OpenRoom BMU - Complete Single Page Application Engine
  * Includes: Live Room Finder, 2FA with Emergency Recovery, Profile Customization,
- * Community Ideas & Reviews with Official Admin Responses, and Full Admin Operations.
+ * Reddit-Style Community Threads & Nested Peer Replies, and Full Admin Operations.
  */
 
 const state = {
   rooms: [],
   user: JSON.parse(localStorage.getItem('openroom_user') || 'null'),
   token: localStorage.getItem('openroom_token') || null,
-  filters: { building: '', search: '', status: '' }
+  filters: { building: '', search: '', status: '' },
+  threadFilter: { tag: 'All', sort: 'hot' }
 };
 
 // UI Notification Controller
@@ -55,7 +56,7 @@ function renderNav() {
   let html = `
     <button class="nav-item ${hash === '#/' ? 'active' : ''}" data-route="#/">Explore</button>
     <button class="nav-item ${hash === '#/rooms' ? 'active' : ''}" data-route="#/rooms">Find Room</button>
-    <button class="nav-item ${hash === '#/reviews' ? 'active' : ''}" data-route="#/reviews">Ideas & Reviews</button>
+    <button class="nav-item ${hash === '#/reviews' ? 'active' : ''}" data-route="#/reviews">Discussions & Reviews</button>
   `;
 
   if (state.user) {
@@ -80,10 +81,17 @@ function renderNav() {
 
 // 1. Home View
 async function HomeView() {
-  const res = await api('/api/rooms');
-  state.rooms = res.data;
-  const emptyCount = state.rooms.filter(r => r.status === 'empty').length;
-  const sample = state.rooms.slice(0, 8);
+  let rooms = [];
+  try {
+    const res = await api('/api/rooms');
+    state.rooms = res.data || [];
+    rooms = state.rooms;
+  } catch (err) {
+    console.warn('Could not fetch rooms immediately:', err.message);
+  }
+
+  const emptyCount = rooms.filter(r => r.status === 'empty').length;
+  const sample = rooms.slice(0, 8);
 
   return `
     <div class="hero-wrapper">
@@ -91,15 +99,15 @@ async function HomeView() {
         <div>
           <div class="eyebrow-pill"><span class="pulsing-dot"></span> Live BMU Campus Coverage</div>
           <h1 class="hero-title">Find an <span>empty room</span> across BMU in seconds.</h1>
-          <p class="hero-lead">OpenRoom is designed for BML Munjal University day scholars. Real-time availability of classrooms, study pods, and computer labs across Block A, B, C, Library, and Innovation Hub.</p>
+          <p class="hero-lead">OpenRoom is designed for BML Munjal University day scholars. Real-time availability of classrooms, study pods, and computer labs across E-2 Building, Gateway Building, Central Library, and Innovation Hub.</p>
           <div style="display:flex; gap:12px; flex-wrap:wrap;">
             <button class="btn btn-open" data-route="#/rooms">Check Free Rooms</button>
             <button class="btn btn-ghost" data-route="#/request-access">Request Day Scholar Login</button>
           </div>
           <div class="hero-metrics">
             <div class="metric-box"><b>${emptyCount}</b><span>Free Now</span></div>
-            <div class="metric-box"><b>${state.rooms.length}</b><span>Rooms Tracked</span></div>
-            <div class="metric-box"><b>5</b><span>Buildings</span></div>
+            <div class="metric-box"><b>${rooms.length}</b><span>Rooms Tracked</span></div>
+            <div class="metric-box"><b>4</b><span>Buildings</span></div>
           </div>
         </div>
         <div class="blueprint-card">
@@ -125,7 +133,7 @@ async function HomeView() {
 async function RoomsView() {
   const res = await api('/api/rooms');
   state.rooms = res.data;
-  const BUILDINGS = ['Block A', 'Block B', 'Block C', 'Central Library', 'Innovation Hub'];
+  const BUILDINGS = ['E-2 Building', 'Gateway Building', 'Central Library', 'Innovation Hub'];
 
   return `
     <div class="container">
@@ -135,7 +143,7 @@ async function RoomsView() {
       </div>
 
       <div class="filter-card">
-        <input type="text" id="filterSearch" placeholder="Search room code (e.g. BA102, LIB201)...">
+        <input type="text" id="filterSearch" placeholder="Search room code (e.g. E2-101, GW-201, LIB-101)...">
         <select id="filterBuilding">
           <option value="">All Buildings</option>
           ${BUILDINGS.map(b => `<option value="${b}">${b}</option>`).join('')}
@@ -280,7 +288,7 @@ function LoginView() {
       <form id="userLoginForm">
         <div class="form-field">
           <label>Login Email</label>
-          <input type="text" id="loginEmail" required placeholder="student@openroom.xyz">
+          <input type="text" id="loginEmail" required placeholder="Enter your email">
         </div>
         <div class="form-field">
           <label>Password</label>
@@ -394,7 +402,7 @@ async function AccountView() {
 
           <div class="form-field">
             <label>Bio / Campus Status</label>
-            <input type="text" id="profBio" value="${u.bio || ''}" placeholder="e.g. 3rd Year CSE Day Scholar &bull; Block A Study Group">
+            <input type="text" id="profBio" value="${u.bio || ''}" placeholder="e.g. 3rd Year CSE Day Scholar &bull; E-2 Building Study Group">
           </div>
 
           <button type="submit" class="btn btn-primary btn-sm" id="btnSaveProfile" style="margin-top:6px;">Save Changes</button>
@@ -421,113 +429,300 @@ async function AccountView() {
   `;
 }
 
-// 7. Community Reviews & Ideas View
+// 7. Reddit-Style Community Threads & Spot Reviews View
 async function ReviewsView() {
-  const res = await api('/api/reviews');
-  const reviews = res.data;
-  const isAdmin = state.user && state.user.role === 'admin';
+  let reviews = [];
+  try {
+    const res = await api('/api/reviews');
+    reviews = res.data || [];
+  } catch (err) {
+    console.error('Failed to load discussions:', err);
+  }
+
+  const currentUser = state.user;
+  const isAdmin = currentUser && currentUser.role === 'admin';
+  const tags = ['All', 'General', 'E-2 Building', 'Gateway Building', 'Library', 'Innovation Hub', 'WiFi/AC'];
 
   return `
-    <div class="container" style="max-width:780px;">
-      <div style="margin-bottom:24px;">
-        <h1 style="font-family:var(--font-display); font-size:30px;">Community Reviews & Feature Ideas</h1>
-        <p style="color:var(--ink-soft);">Suggest features or review study spots. Admins review and respond directly to feedback.</p>
+    <div class="container" style="max-width:840px;">
+      <div style="margin-bottom:24px; text-align:center;">
+        <h1 style="font-family:var(--font-display); font-size:30px; margin-bottom:6px;">Campus Discussions & Spot Reviews</h1>
+        <p style="color:var(--ink-soft);">Connect with other day scholars, share room tips, and collaborate on campus life.</p>
       </div>
 
-      ${state.user ? `
-        <div class="content-card" style="margin: 0 0 24px 0; padding:20px;">
-          <h3 style="margin-bottom:12px;">Share Feedback / Feature Suggestion</h3>
-          <form id="reviewSubmitForm">
-            <div class="form-field">
-              <label>Category</label>
-              <select id="reviewCategory">
-                <option value="review">Campus Room Review</option>
-                <option value="suggestion">Feature Suggestion for OpenRoom</option>
-              </select>
+      <!-- Create Thread Card -->
+      ${currentUser ? `
+        <div class="content-card" style="margin:0 0 24px 0; padding:22px;">
+          <h3 style="margin-bottom:14px; font-size:17px;">Create a Discussion Post</h3>
+          <form id="newReviewForm">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
+              <div class="form-field" style="margin:0;">
+                <label>Category</label>
+                <select id="reviewKind">
+                  <option value="review">Campus Room Review</option>
+                  <option value="suggestion">Feature Suggestion</option>
+                  <option value="discussion">General Question / Discussion</option>
+                </select>
+              </div>
+              <div class="form-field" style="margin:0;">
+                <label>Campus Tag</label>
+                <select id="reviewTag">
+                  <option value="General">General</option>
+                  <option value="E-2 Building">E-2 Building</option>
+                  <option value="Gateway Building">Gateway Building</option>
+                  <option value="Library">Library</option>
+                  <option value="Innovation Hub">Innovation Hub</option>
+                  <option value="WiFi/AC">WiFi & AC</option>
+                </select>
+              </div>
             </div>
             <div class="form-field">
-              <label>Your Feedback</label>
-              <textarea id="reviewText" rows="3" required placeholder="e.g. Innovation Hub 2nd floor pods have good charging ports and quiet ambiance..."></textarea>
+              <label>Your Message / Tip</label>
+              <textarea id="reviewBody" rows="3" required placeholder="e.g. Innovation Hub 2nd floor study pods have great AC and plenty of charging ports right now..."></textarea>
             </div>
             <button type="submit" class="btn btn-primary btn-sm">Post to Community</button>
           </form>
         </div>
       ` : `
         <div class="box-highlight" style="text-align:center; padding:24px; margin-bottom:24px;">
-          <h3>Join the Day Scholar Community</h3>
-          <p style="font-size:14px; color:var(--ink-soft); margin:8px 0 16px;">Sign in to post reviews, suggest new features, and view administrator updates.</p>
-          <button class="btn btn-primary btn-sm" data-route="#/login">Log In to Post</button>
+          <h3>Join the BMU Day Scholar Community</h3>
+          <p style="font-size:14px; color:var(--ink-soft); margin:8px 0 16px;">Sign in to start discussions, upvote helpful study spot reviews, and reply to peers.</p>
+          <button class="btn btn-primary btn-sm" data-route="#/login">Log In to Participate</button>
         </div>
       `}
 
-      <div style="display:flex; flex-direction:column; gap:16px;">
-        ${reviews.length ? reviews.map(rv => `
-          <div class="content-card" style="margin:0; padding:20px; border-left: 4px solid ${rv.isNoted ? 'var(--line)' : rv.kind === 'suggestion' ? 'var(--navy)' : 'var(--open)'};">
-            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px; flex-wrap:wrap; gap:6px;">
-              <div>
-                <strong style="font-size:15px;">${rv.author}</strong>
-                <span class="status-pill ${rv.kind === 'suggestion' ? 'empty' : 'busy'}" style="margin-left:6px;">
-                  ${rv.kind === 'suggestion' ? '💡 Feature Idea' : '💬 Review'}
-                </span>
-                ${rv.isNoted ? `<span style="background:#f1f5f9; color:#475569; font-size:11px; padding:2px 8px; border-radius:10px; font-weight:600; margin-left:4px;">📌 NOTED (Auto-Purging)</span>` : ''}
-              </div>
-              <span style="font-size:12px; color:var(--ink-soft);">${new Date(rv.createdAt).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-            </div>
+      <!-- Tags Filter Bar -->
+      <div style="display:flex; gap:8px; overflow-x:auto; padding-bottom:10px; margin-bottom:16px;">
+        ${tags.map(t => `
+          <button class="btn btn-sm ${state.threadFilter.tag === t ? 'btn-primary' : 'btn-ghost'} btnTagFilter" data-tag="${t}" style="border-radius:20px; font-size:12px; padding:4px 14px; white-space:nowrap;">
+            ${t}
+          </button>
+        `).join('')}
+      </div>
 
-            <p style="font-size:14px; color:var(--ink); line-height:1.5; margin-bottom:12px;">${rv.body}</p>
-
-            <!-- Admin Official Reply Profile Card -->
-            ${rv.adminReply && rv.adminReply.message ? `
-              <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:14px; margin-top:12px;">
-                <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
-                  <div style="width:26px; height:26px; border-radius:50%; background:var(--navy); color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700;">⚡</div>
-                  <div>
-                    <strong style="font-size:13px; color:var(--navy);">${rv.adminReply.repliedBy}</strong>
-                    <span style="background:var(--open-soft); color:var(--open); font-size:10px; font-weight:700; padding:1px 6px; border-radius:4px; margin-left:4px;">OFFICIAL ADMIN</span>
-                  </div>
-                  <span style="font-size:11px; color:var(--ink-soft); margin-left:auto;">${new Date(rv.adminReply.repliedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
-                </div>
-                <p style="font-size:13px; color:#334155; margin:0; padding-left:34px; line-height:1.4;">${rv.adminReply.message}</p>
-              </div>
-            ` : ''}
-
-            <!-- Admin Controls -->
-            ${isAdmin ? `
-              <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-                <div style="display:flex; gap:8px;">
-                  ${!rv.isNoted ? `
-                    <button class="btn btn-ghost btn-sm btnMarkNoted" data-id="${rv._id}">
-                      📌 Mark as Noted (1h Auto-Purge)
-                    </button>
-                  ` : `<span style="font-size:12px; color:var(--ink-soft);">✓ Noted (will purge in ~1 hr)</span>`}
-                  <button class="btn btn-busy btn-sm btnDeleteReview" data-id="${rv._id}">
-                    🗑️ Delete
-                  </button>
-                </div>
-                <button class="btn btn-primary btn-sm btnToggleReplyForm" data-id="${rv._id}">
-                  💬 ${rv.adminReply && rv.adminReply.message ? 'Edit Reply' : 'Admin Reply'}
-                </button>
-              </div>
-
-              <!-- Admin Reply Form (Toggled) -->
-              <div id="replyBox-${rv._id}" style="display:none; margin-top:12px;">
-                <form class="adminReplySubmitForm" data-id="${rv._id}">
-                  <div class="form-field" style="margin-bottom:8px;">
-                    <textarea class="adminReplyInput" rows="2" required placeholder="Type official administrator response..." style="font-size:13px;">${rv.adminReply?.message || ''}</textarea>
-                  </div>
-                  <div style="display:flex; justify-content:flex-end; gap:8px;">
-                    <button type="button" class="btn btn-ghost btn-sm btnCancelReply" data-id="${rv._id}">Cancel</button>
-                    <button type="submit" class="btn btn-primary btn-sm">Send Official Response</button>
-                  </div>
-                </form>
-              </div>
-            ` : ''}
+      <!-- Thread Feed -->
+      <div id="threadList" style="display:flex; flex-direction:column; gap:16px;">
+        ${reviews.length ? reviews.map(r => renderThreadCard(r, currentUser, isAdmin)).join('') : `
+          <div style="text-align:center; padding:40px; color:var(--ink-soft); background:#fff; border-radius:10px; border:1px solid var(--line);">
+            No discussions found. Be the first to start a conversation!
           </div>
-        `).join('') : '<div style="text-align:center; padding:40px; color:var(--ink-soft);">No ideas or reviews yet. Be the first to post!</div>'}
+        `}
       </div>
     </div>
   `;
 }
+
+function renderThreadCard(r, currentUser, isAdmin) {
+  const upvoted = currentUser && r.upvotes && r.upvotes.includes(currentUser.email);
+  const comments = r.comments || [];
+  const isPostOwner = currentUser && r.authorEmail && r.authorEmail.toLowerCase() === currentUser.email.toLowerCase();
+  const canDeletePost = isPostOwner || isAdmin;
+
+  return `
+    <div class="content-card thread-card" style="margin:0; padding:20px; border-left:4px solid ${r.isNoted ? 'var(--line)' : r.kind === 'suggestion' ? 'var(--navy)' : 'var(--open)'};" data-thread-id="${r._id}">
+      <div style="display:flex; gap:14px;">
+        
+        <!-- Left Reddit Voting Column -->
+        <div style="display:flex; flex-direction:column; align-items:center; min-width:32px;">
+          <button class="vote-btn ${upvoted ? 'active' : ''}" onclick="voteThread('${r._id}')" style="background:none; border:none; cursor:pointer; font-size:16px; color:${upvoted ? 'var(--open)' : 'var(--ink-soft)'};" title="Upvote">
+            ▲
+          </button>
+          <span style="font-weight:700; font-size:13px; color:var(--ink); margin:2px 0;">${r.score || (r.upvotes?.length || 0)}</span>
+        </div>
+
+        <!-- Main Thread Content -->
+        <div style="flex:1;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <div style="width:26px; height:26px; border-radius:50%; background:${r.avatarColor || '#131D35'}; color:#fff; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700;">
+                ${(r.author || 'S').charAt(0).toUpperCase()}
+              </div>
+              <strong style="font-size:14px;">${r.author}</strong>
+              <span class="status-pill ${r.kind === 'suggestion' ? 'empty' : 'busy'}" style="font-size:11px;">
+                ${r.kind === 'suggestion' ? '💡 Idea' : r.kind === 'discussion' ? '💬 Discussion' : '📍 Review'}
+              </span>
+              <span style="background:var(--paper); color:var(--ink-soft); font-size:11px; padding:2px 8px; border-radius:10px; font-weight:600;">
+                ${r.tag || 'General'}
+              </span>
+              ${r.isNoted ? `<span style="background:#f1f5f9; color:#475569; font-size:11px; padding:2px 8px; border-radius:10px; font-weight:600;">📌 NOTED</span>` : ''}
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:12px; color:var(--ink-soft);">
+                ${new Date(r.createdAt).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </span>
+              ${canDeletePost ? `
+                <button onclick="deleteThread('${r._id}')" style="background:none; border:none; cursor:pointer; color:#d9383a; font-size:13px; padding:2px 6px; border-radius:4px;" title="Delete Post">
+                  🗑️
+                </button>
+              ` : ''}
+            </div>
+          </div>
+
+          <p style="font-size:14px; color:var(--ink); line-height:1.5; margin-bottom:12px;">${r.body}</p>
+
+          <!-- Official Admin Reply Badge if exists -->
+          ${r.adminReply && r.adminReply.message ? `
+            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px; margin-bottom:12px;">
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+                <div style="width:22px; height:22px; border-radius:50%; background:var(--navy); color:#fff; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700;">⚡</div>
+                <strong style="font-size:12px; color:var(--navy);">${r.adminReply.repliedBy || 'BMU Administrator'}</strong>
+                <span style="background:var(--open-soft); color:var(--open); font-size:10px; font-weight:700; padding:1px 6px; border-radius:4px;">OFFICIAL ADMIN</span>
+              </div>
+              <p style="font-size:13px; color:#334155; margin:0; padding-left:30px; line-height:1.4;">${r.adminReply.message}</p>
+            </div>
+          ` : ''}
+
+          <!-- Thread Actions Bar -->
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:13px; color:var(--ink-soft); border-top:1px solid var(--line); padding-top:10px; margin-top:10px; flex-wrap:wrap; gap:8px;">
+            <div style="display:flex; gap:12px; align-items:center;">
+              <span style="cursor:pointer; font-weight:600; color:var(--navy);">
+                💬 ${comments.length} ${comments.length === 1 ? 'Comment' : 'Comments'}
+              </span>
+            </div>
+
+            <!-- Admin Note Action Control -->
+            ${isAdmin && !r.isNoted ? `
+              <button class="btn btn-ghost btn-sm btnMarkNoted" data-id="${r._id}" style="padding:2px 8px; font-size:11px;">
+                📌 Note
+              </button>
+            ` : ''}
+          </div>
+
+          <!-- Nested Comments List -->
+          <div style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
+            ${comments.map(c => {
+              const isCommentOwner = currentUser && c.authorEmail && c.authorEmail.toLowerCase() === currentUser.email.toLowerCase();
+              const canDeleteComment = isCommentOwner || isAdmin;
+
+              return `
+                <div style="display:flex; gap:10px; background:var(--paper); padding:10px 12px; border-radius:8px; font-size:13px;">
+                  <div style="width:22px; height:22px; border-radius:50%; background:${c.avatarColor || '#131D35'}; color:#fff; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; flex-shrink:0;">
+                    ${(c.author || 'S').charAt(0).toUpperCase()}
+                  </div>
+                  <div style="flex:1;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+                      <span style="font-weight:700; font-size:12px; color:var(--ink);">
+                        ${c.author} ${c.authorRole === 'admin' ? '<span style="color:var(--open); font-size:10px;">(Admin)</span>' : ''}
+                      </span>
+                      <div style="display:flex; align-items:center; gap:6px;">
+                        <span style="font-size:11px; color:var(--ink-soft);">${new Date(c.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        ${canDeleteComment ? `
+                          <button onclick="deleteComment('${r._id}', '${c._id}')" style="background:none; border:none; cursor:pointer; color:#d9383a; font-size:11px; padding:0 2px;" title="Delete Reply">
+                            ✕
+                          </button>
+                        ` : ''}
+                      </div>
+                    </div>
+                    <div style="color:var(--ink);">${c.body}</div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+
+            <!-- Quick Comment Box -->
+            ${currentUser ? `
+              <form onsubmit="submitComment(event, '${r._id}')" style="display:flex; gap:8px; margin-top:6px;">
+                <input type="text" id="comment-input-${r._id}" placeholder="Write a reply to ${r.author}..." required style="flex:1; padding:7px 12px; border-radius:6px; border:1px solid var(--line); font-size:12.5px;" />
+                <button type="submit" class="btn btn-primary btn-sm" style="padding:6px 12px; font-size:12px;">Reply</button>
+              </form>
+            ` : ''}
+          </div>
+
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// Global window actions
+window.voteThread = async function(threadId) {
+  if (!state.token) {
+    toast('Please sign in to upvote discussions.', 'default');
+    location.hash = '#/login';
+    return;
+  }
+  try {
+    await api(`/api/reviews/${threadId}/vote`, { method: 'POST' });
+    router();
+  } catch (err) {}
+};
+
+window.submitComment = async function(e, threadId) {
+  e.preventDefault();
+  if (!state.token) {
+    toast('Please sign in to reply.', 'default');
+    location.hash = '#/login';
+    return;
+  }
+  const input = document.getElementById(`comment-input-${threadId}`);
+  const body = input ? input.value.trim() : '';
+  if (!body) return;
+
+  try {
+    await api(`/api/reviews/${threadId}/comments`, {
+      method: 'POST',
+      body: JSON.stringify({ body })
+    });
+    toast('Reply posted!', 'success');
+    router();
+  } catch (err) {}
+};
+
+window.deleteThread = async function(threadId) {
+  if (!confirm('Are you sure you want to delete this discussion?')) return;
+  try {
+    const res = await api(`/api/reviews/${threadId}`, { method: 'DELETE' });
+    toast(res.message || 'Discussion deleted.', 'success');
+    router();
+  } catch (err) {}
+};
+
+window.deleteComment = async function(threadId, commentId) {
+  if (!confirm('Are you sure you want to delete this reply?')) return;
+  try {
+    const res = await api(`/api/reviews/${threadId}/comments/${commentId}`, { method: 'DELETE' });
+    toast(res.message || 'Reply deleted.', 'success');
+    router();
+  } catch (err) {}
+};
+
+// Global window actions for direct onclick handling
+window.voteThread = async function(threadId) {
+  if (!state.token) {
+    toast('Please sign in to upvote discussions.', 'default');
+    location.hash = '#/login';
+    return;
+  }
+  try {
+    await api(`/api/reviews/${threadId}/vote`, { method: 'POST' });
+    router();
+  } catch (err) {
+    // Handled by API dispatcher
+  }
+};
+
+window.submitComment = async function(e, threadId) {
+  e.preventDefault();
+  if (!state.token) {
+    toast('Please sign in to reply.', 'default');
+    location.hash = '#/login';
+    return;
+  }
+  const input = document.getElementById(`comment-input-${threadId}`);
+  const body = input ? input.value.trim() : '';
+  if (!body) return;
+
+  try {
+    await api(`/api/reviews/${threadId}/comments`, {
+      method: 'POST',
+      body: JSON.stringify({ body })
+    });
+    toast('Reply posted!', 'success');
+    router();
+  } catch (err) {
+    // Handled by API dispatcher
+  }
+};
 
 // 8. Admin View
 async function AdminView() {
@@ -755,15 +950,14 @@ async function AdminView() {
         <h3>Add Room to BMU Directory</h3>
         <form id="createRoomForm" style="margin-top:16px;">
           <div class="form-field">
-            <label>Room Code (e.g. BA105, IH202, LIB101)</label>
-            <input type="text" id="mCode" required placeholder="BA105">
+            <label>Room Code (e.g. E2-101, GW-202, LIB-101)</label>
+            <input type="text" id="mCode" required placeholder="E2-101">
           </div>
           <div class="form-field">
             <label>Building</label>
             <select id="mBuilding" required>
-              <option value="Block A">Block A</option>
-              <option value="Block B">Block B</option>
-              <option value="Block C">Block C</option>
+              <option value="E-2 Building">E-2 Building</option>
+              <option value="Gateway Building">Gateway Building</option>
               <option value="Central Library">Central Library</option>
               <option value="Innovation Hub">Innovation Hub</option>
             </select>
@@ -804,18 +998,14 @@ function NotFoundView(customMessage = null) {
         <div class="notfound-radar">
           <div class="notfound-radar-icon">🧭</div>
         </div>
-        
         <div class="notfound-badge">
           <span>●</span> 404 &bull; ROOM OR PAGE NOT FOUND
         </div>
-        
         <div class="notfound-code">404</div>
         <h1 class="notfound-title">Lost on Campus?</h1>
-        
         <p class="notfound-desc">
-          ${customMessage || "The classroom code or URL you entered doesn't exist on the BML Munjal University live directory. It may have been moved, renamed, or mistyped."}
+          ${customMessage || "The classroom code or URL you entered doesn't exist on the BML Munjal University live directory."}
         </p>
-
         <div class="notfound-actions">
           <button class="btn btn-primary" data-route="#/rooms">
             🔍 Check Live Free Rooms
@@ -824,9 +1014,8 @@ function NotFoundView(customMessage = null) {
             🏛️ Campus Overview
           </button>
         </div>
-
         <div style="margin-top: 32px; padding-top: 18px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-soft);">
-          Looking for a specific Block? Check <b>Block A</b>, <b>Block B</b>, <b>Block C</b>, <b>Library</b>, or <b>Innovation Hub</b>.
+          Looking for a specific building? Check <b>E-2 Building</b>, <b>Gateway Building</b>, <b>Central Library</b>, or <b>Innovation Hub</b>.
         </div>
       </div>
     </div>
@@ -839,35 +1028,40 @@ function NotFoundView(customMessage = null) {
 async function router() {
   renderNav();
   const host = document.getElementById('viewPort');
+  if (!host) return;
   const hash = location.hash || '#/';
 
-  if (hash === '#/') {
-    host.innerHTML = await HomeView();
-  } else if (hash === '#/rooms') {
-    host.innerHTML = await RoomsView();
-    renderRoomsMatrix();
-    attachFilterListeners();
-  } else if (hash.startsWith('#/room/')) {
-    const code = hash.split('/')[2];
-    host.innerHTML = await RoomDetailView(code);
-    attachDetailListeners(code);
-  } else if (hash === '#/request-access') {
-    host.innerHTML = RequestAccessView();
-    attachAccessRequestForm();
-  } else if (hash === '#/login') {
-    host.innerHTML = LoginView();
-    attachLoginForm();
-  } else if (hash === '#/account') {
-    host.innerHTML = await AccountView();
-    attachAccountForm();
-  } else if (hash === '#/reviews') {
-    host.innerHTML = await ReviewsView();
-    attachReviewForm();
-  } else if (hash === '#/admin') {
-    host.innerHTML = await AdminView();
-    attachAdminHandlers();
-  } else {
-    host.innerHTML = NotFoundView();
+  try {
+    if (hash === '#/') {
+      host.innerHTML = await HomeView();
+    } else if (hash === '#/rooms') {
+      host.innerHTML = await RoomsView();
+      renderRoomsMatrix();
+      attachFilterListeners();
+    } else if (hash.startsWith('#/room/')) {
+      const code = hash.split('/')[2];
+      host.innerHTML = await RoomDetailView(code);
+      attachDetailListeners(code);
+    } else if (hash === '#/request-access') {
+      host.innerHTML = RequestAccessView();
+      attachAccessRequestForm();
+    } else if (hash === '#/login') {
+      host.innerHTML = LoginView();
+      attachLoginForm();
+    } else if (hash === '#/account') {
+      host.innerHTML = await AccountView();
+      attachAccountForm();
+    } else if (hash === '#/reviews') {
+      host.innerHTML = await ReviewsView();
+      attachReviewForm();
+    } else if (hash === '#/admin') {
+      host.innerHTML = await AdminView();
+      attachAdminHandlers();
+    } else {
+      host.innerHTML = NotFoundView();
+    }
+  } catch (err) {
+    console.error('Route Dispatch Error:', err);
   }
 }
 
@@ -894,7 +1088,6 @@ document.addEventListener('click', (e) => {
 // DOM EVENT ATTACHERS
 // ==========================================
 
-// Filter Matrix Handlers
 function attachFilterListeners() {
   document.getElementById('filterSearch')?.addEventListener('input', (e) => {
     state.filters.search = e.target.value;
@@ -910,7 +1103,6 @@ function attachFilterListeners() {
   });
 }
 
-// Room Detail & Crowdsourced Reporting Handlers
 function attachDetailListeners(code) {
   document.getElementById('voteEmpty')?.addEventListener('click', async () => {
     await api(`/api/rooms/${code}/vote`, { method: 'POST', body: JSON.stringify({ action: 'empty' }) });
@@ -972,7 +1164,6 @@ function attachDetailListeners(code) {
   });
 }
 
-// Access Request Form
 function attachAccessRequestForm() {
   document.getElementById('accessRequestForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -995,7 +1186,6 @@ function attachAccessRequestForm() {
   });
 }
 
-// Authentication, 2FA Challenge & Emergency Self-Service Recovery
 function attachLoginForm() {
   const loginForm = document.getElementById('userLoginForm');
   const loginCard = document.getElementById('loginCard');
@@ -1013,7 +1203,6 @@ function attachLoginForm() {
         body: JSON.stringify({ email, password })
       });
 
-      // CASE 1: First-Time 2FA Setup with QR Code
       if (res.require2FASetup) {
         loginCard.style.display = 'none';
         twoFactorCard.style.display = 'block';
@@ -1033,7 +1222,6 @@ function attachLoginForm() {
             <div id="twoFactorErr" style="display:none;" class="inline-error"></div>
             <form id="verify2FAForm">
               <input type="hidden" id="twoFactorUserId" value="${res.userId}">
-              <input type="hidden" id="isSetupFlow" value="true">
               <div class="form-field">
                 <label>Enter 6-Digit Code from App</label>
                 <input type="text" id="totpCode" maxlength="6" pattern="[0-9]{6}" required placeholder="e.g. 482910" autofocus style="text-align:center; font-size:20px; font-weight:700; letter-spacing:4px;">
@@ -1046,7 +1234,6 @@ function attachLoginForm() {
         return;
       }
 
-      // CASE 2: Routine 2FA Challenge with Emergency Recovery Option
       if (res.require2FA) {
         loginCard.style.display = 'none';
         twoFactorCard.style.display = 'block';
@@ -1060,7 +1247,6 @@ function attachLoginForm() {
             <div id="twoFactorErr" style="display:none;" class="inline-error"></div>
             <form id="verify2FAForm">
               <input type="hidden" id="twoFactorUserId" value="${res.userId}">
-              <input type="hidden" id="isSetupFlow" value="false">
               <div class="form-field">
                 <label>6-Digit Authenticator Code</label>
                 <input type="text" id="totpCode" maxlength="6" pattern="[0-9]{6}" required placeholder="000000" autofocus style="text-align:center; font-size:22px; font-weight:700; letter-spacing:5px;">
@@ -1073,7 +1259,6 @@ function attachLoginForm() {
               </div>
             </form>
 
-            <!-- Emergency 2FA Reset Modal Form (Hidden by default) -->
             <div id="emergencyResetBox" style="display:none; margin-top:20px; text-align:left; border-top:1px solid var(--line); padding-top:16px;">
               <h4 style="color:#d9383a; margin-bottom:6px;">Emergency 2FA Reset</h4>
               <p style="font-size:12px; color:var(--ink-soft); margin-bottom:12px;">Enter your admin password and Master Recovery Key.</p>
@@ -1100,7 +1285,6 @@ function attachLoginForm() {
         return;
       }
 
-      // Standard Student login success
       localStorage.setItem('openroom_token', res.token);
       localStorage.setItem('openroom_user', JSON.stringify(res.user));
       state.user = res.user;
@@ -1136,7 +1320,6 @@ function attach2FAVerification() {
     if (recoveryBox) recoveryBox.style.display = 'none';
   });
 
-  // Verify TOTP Code
   form?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const userId = document.getElementById('twoFactorUserId').value;
@@ -1161,7 +1344,6 @@ function attach2FAVerification() {
     }
   });
 
-  // Emergency Recovery Submit
   recForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const email = document.getElementById('recEmail').value;
@@ -1186,18 +1368,15 @@ function attach2FAVerification() {
   });
 }
 
-// User Profile Customization Handlers
 function attachAccountForm() {
   const colorInput = document.getElementById('profColor');
   const avatarBadge = document.getElementById('profileAvatarBadge');
   const msgBox = document.getElementById('accountInlineMsg');
 
-  // Live color updates from color picker
   colorInput?.addEventListener('input', (e) => {
     if (avatarBadge) avatarBadge.style.backgroundColor = e.target.value;
   });
 
-  // Preset color palette quick-pickers
   document.querySelectorAll('.btnPresetColor').forEach(btn => {
     btn.addEventListener('click', () => {
       const selected = btn.getAttribute('data-color');
@@ -1206,7 +1385,6 @@ function attachAccountForm() {
     });
   });
 
-  // Live name change reflected in header initial
   document.getElementById('profName')?.addEventListener('input', (e) => {
     const val = e.target.value.trim();
     if (val && avatarBadge) {
@@ -1214,7 +1392,6 @@ function attachAccountForm() {
     }
   });
 
-  // Profile Form Submission
   document.getElementById('updateProfileForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = document.getElementById('btnSaveProfile');
@@ -1236,13 +1413,11 @@ function attachAccountForm() {
         body: JSON.stringify(payload)
       });
 
-      // Update state and persistent cache
       state.user = res.user;
       localStorage.setItem('openroom_user', JSON.stringify(res.user));
 
       toast('Profile updated and saved!', 'success');
       
-      // Update UI components immediately
       const headerName = document.getElementById('profileHeaderName');
       const headerSub = document.getElementById('profileHeaderSub');
       if (headerName) headerName.innerText = res.user.name;
@@ -1268,7 +1443,6 @@ function attachAccountForm() {
     }
   });
 
-  // Password Change Submission
   document.getElementById('changePasswordForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const currentPassword = document.getElementById('currentPass').value;
@@ -1287,66 +1461,45 @@ function attachAccountForm() {
       document.getElementById('currentPass').value = '';
       document.getElementById('newPass').value = '';
     } catch (err) {
-      // Toast notification handled by API dispatcher
+      // Handled by API dispatcher
     } finally {
       btn.disabled = false;
     }
   });
 }
 
-// Community Feedback & Feature Suggestions Handlers
 function attachReviewForm() {
-  // Student Submit Feedback
-  document.getElementById('reviewSubmitForm')?.addEventListener('submit', async (e) => {
+  document.getElementById('newReviewForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const kind = document.getElementById('reviewCategory').value;
-    const body = document.getElementById('reviewText').value;
+    const kind = document.getElementById('reviewKind').value;
+    const tag = document.getElementById('reviewTag').value;
+    const body = document.getElementById('reviewBody').value;
 
     await api('/api/reviews', {
       method: 'POST',
-      body: JSON.stringify({ kind, body })
+      body: JSON.stringify({ kind, tag, body })
     });
-    toast('Feedback posted to community!', 'success');
+    toast('Discussion posted to community!', 'success');
     router();
   });
 
-  // Admin: Toggle Reply Box
-  document.querySelectorAll('.btnToggleReplyForm').forEach(btn => {
+  document.querySelectorAll('.btnTagFilter').forEach(btn => {
     btn.addEventListener('click', () => {
-      const id = btn.getAttribute('data-id');
-      const box = document.getElementById(`replyBox-${id}`);
-      if (box) {
-        box.style.display = box.style.display === 'none' ? 'block' : 'none';
-      }
-    });
-  });
-
-  // Admin: Cancel Reply
-  document.querySelectorAll('.btnCancelReply').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const id = btn.getAttribute('data-id');
-      const box = document.getElementById(`replyBox-${id}`);
-      if (box) box.style.display = 'none';
-    });
-  });
-
-  // Admin: Submit Official Reply
-  document.querySelectorAll('.adminReplySubmitForm').forEach(form => {
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const id = form.getAttribute('data-id');
-      const message = form.querySelector('.adminReplyInput').value;
-
-      await api(`/api/reviews/${id}/reply`, {
-        method: 'POST',
-        body: JSON.stringify({ message })
+      state.threadFilter.tag = btn.getAttribute('data-tag');
+      document.querySelectorAll('.thread-card').forEach(card => {
+        const tag = card.querySelector('span[style*="font-weight:600"]')?.innerText.trim();
+        if (state.threadFilter.tag === 'All' || tag === state.threadFilter.tag) {
+          card.style.display = 'block';
+        } else {
+          card.style.display = 'none';
+        }
       });
-      toast('Official Admin response published!', 'success');
-      router();
+      document.querySelectorAll('.btnTagFilter').forEach(b => {
+        b.className = b.getAttribute('data-tag') === state.threadFilter.tag ? 'btn btn-sm btn-primary btnTagFilter' : 'btn btn-sm btn-ghost btnTagFilter';
+      });
     });
   });
 
-  // Admin: Mark as Noted (1-Hour Auto-Purge)
   document.querySelectorAll('.btnMarkNoted').forEach(btn => {
     btn.addEventListener('click', async () => {
       const id = btn.getAttribute('data-id');
@@ -1356,37 +1509,29 @@ function attachReviewForm() {
     });
   });
 
-  // Admin: Delete Review
   document.querySelectorAll('.btnDeleteReview').forEach(btn => {
     btn.addEventListener('click', async () => {
       const id = btn.getAttribute('data-id');
-      if (!confirm('Are you sure you want to delete this review?')) return;
+      if (!confirm('Are you sure you want to delete this discussion?')) return;
 
       await api(`/api/reviews/${id}`, { method: 'DELETE' });
-      toast('Review removed successfully.', 'success');
+      toast('Discussion removed successfully.', 'success');
       router();
     });
   });
 }
 
-// Administrator Center Handlers
 function attachAdminHandlers() {
-  // Modal references
   const provModal = document.getElementById('provisionModal');
   const resetModal = document.getElementById('resetStudentModal');
   const addRoomModal = document.getElementById('addRoomModal');
 
-  // Add Room Modal Open/Close
   document.getElementById('btnOpenAddRoomModal')?.addEventListener('click', () => addRoomModal.style.display = 'flex');
   document.getElementById('btnCloseAddRoomModal')?.addEventListener('click', () => addRoomModal.style.display = 'none');
 
-  // Close Provision Modal
   document.getElementById('btnCloseProvisionModal')?.addEventListener('click', () => provModal.style.display = 'none');
-
-  // Close Reset Modal
   document.getElementById('btnCloseResetModal')?.addEventListener('click', () => resetModal.style.display = 'none');
 
-  // Open Provision Modal (Populate pre-filled @openroom.xyz handle & password)
   document.querySelectorAll('.btnOpenProvisionModal').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.getAttribute('data-id');
@@ -1399,7 +1544,6 @@ function attachAdminHandlers() {
       document.getElementById('provBmuEmail').value = bmuEmail;
       document.getElementById('provMobile').value = mobile;
 
-      // Suggest clean email handle ending with @openroom.xyz
       const cleanHandle = name.toLowerCase().replace(/[^a-z0-9]/g, '');
       document.getElementById('provCustomEmail').value = `${cleanHandle}@openroom.xyz`;
       document.getElementById('provPassword').value = `BMU@${Math.floor(100000 + Math.random() * 900000)}`;
@@ -1408,7 +1552,6 @@ function attachAdminHandlers() {
     });
   });
 
-  // Handle Provision Submit
   document.getElementById('provisionForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const requestId = document.getElementById('provReqId').value;
@@ -1423,12 +1566,11 @@ function attachAdminHandlers() {
       body: JSON.stringify({ requestId, name, bmuEmail, customEmail, password, mobile })
     });
 
-    toast(`Account created & email dispatched to ${bmuEmail}`, 'success');
+    toast(`Account created & saved to Excel roster!`, 'success');
     provModal.style.display = 'none';
     router();
   });
 
-  // Open Reset Student Password Modal
   document.querySelectorAll('.btnOpenResetModal').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.getAttribute('data-id');
@@ -1445,7 +1587,6 @@ function attachAdminHandlers() {
     });
   });
 
-  // Handle Reset Submit
   document.getElementById('resetStudentForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const requestId = document.getElementById('resetReqId').value;
@@ -1462,7 +1603,6 @@ function attachAdminHandlers() {
     router();
   });
 
-  // Search inside admin table
   document.getElementById('adminRoomSearch')?.addEventListener('input', (e) => {
     const term = e.target.value.toLowerCase();
     document.querySelectorAll('#adminRoomsTable tbody tr').forEach(row => {
@@ -1471,7 +1611,6 @@ function attachAdminHandlers() {
     });
   });
 
-  // Admin Room Status Toggle
   document.querySelectorAll('.btnAdminToggle').forEach(btn => {
     btn.addEventListener('click', async () => {
       const code = btn.getAttribute('data-code');
@@ -1487,7 +1626,6 @@ function attachAdminHandlers() {
     });
   });
 
-  // Admin Delete Room
   document.querySelectorAll('.btnAdminDelete').forEach(btn => {
     btn.addEventListener('click', async () => {
       const code = btn.getAttribute('data-code');
@@ -1499,7 +1637,6 @@ function attachAdminHandlers() {
     });
   });
 
-  // Create Room
   document.getElementById('createRoomForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const code = document.getElementById('mCode').value.trim();

@@ -149,7 +149,7 @@ router.post('/login', async (req, res) => {
     // Standard Student Token Issue
     const token = jwt.sign(
       { id: user._id, email: user.email, name: user.name, role: user.role },
-      process.env.JWT_SECRET ,
+      process.env.JWT_SECRET || 'bmu_openroom_jwt_super_production_secret_key_2026_secure',
       { expiresIn: '7d' }
     );
 
@@ -199,7 +199,39 @@ router.post('/verify-2fa', async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid 6-digit Authenticator code.' });
     }
 
-    // 3b. Admin Emergency 2FA Reset (Self-Service Recovery)
+    // Mark 2FA as ENABLED permanently in MongoDB Atlas
+    user.twoFactorEnabled = true;
+    await user.save();
+    console.log(`[2FA Activated] ✅ 2FA permanently locked in DB for ${user.email}`);
+
+    const token = jwt.sign(
+      { id: user._id, email: user.email, name: user.name, role: user.role },
+      process.env.JWT_SECRET || 'bmu_openroom_jwt_super_production_secret_key_2026_secure',
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        mobile: user.mobile,
+        branch: user.branch || 'Administration',
+        batchYear: user.batchYear || 'Staff',
+        avatarColor: user.avatarColor || '#131D35',
+        bio: user.bio || 'Official OpenRoom Administrator'
+      }
+    });
+  } catch (err) {
+    console.error('2FA Verification Error:', err);
+    res.status(500).json({ success: false, message: '2FA verification error.' });
+  }
+});
+
+// 4. Admin Emergency 2FA Reset (Self-Service Recovery)
 router.post('/reset-2fa-emergency', async (req, res) => {
   try {
     const { email, password, recoveryKey } = req.body;
@@ -240,7 +272,7 @@ router.post('/reset-2fa-emergency', async (req, res) => {
     user.twoFactorEnabled = false;
     await user.save();
 
-    console.log(`[Emergency Recovery] ⚠️ 2FA has been cleared for admin: ${user.email}. New setup will be requested on next login.`);
+    console.log(`[Emergency Recovery] ⚠️ 2FA has been cleared for admin: ${user.email}.`);
 
     res.json({
       success: true,
@@ -252,39 +284,7 @@ router.post('/reset-2fa-emergency', async (req, res) => {
   }
 });
 
-    // Mark 2FA as ENABLED permanently in MongoDB Atlas
-    user.twoFactorEnabled = true;
-    await user.save();
-    console.log(`[2FA Activated] ✅ 2FA permanently locked in DB for ${user.email}`);
-
-    const token = jwt.sign(
-      { id: user._id, email: user.email, name: user.name, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    );
-
-    res.json({
-      success: true,
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        mobile: user.mobile,
-        branch: user.branch || 'Administration',
-        batchYear: user.batchYear || 'Staff',
-        avatarColor: user.avatarColor || '#131D35',
-        bio: user.bio || 'Official OpenRoom Administrator'
-      }
-    });
-  } catch (err) {
-    console.error('2FA Verification Error:', err);
-    res.status(500).json({ success: false, message: '2FA verification error.' });
-  }
-});
-
-// 4. Get Current User Profile (Live from DB)
+// 5. Get Current User Profile (Live from DB)
 router.get('/me', verifyToken, async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select('-password -twoFactorSecret');
@@ -310,14 +310,14 @@ router.get('/me', verifyToken, async (req, res) => {
   }
 });
 
-// 5. Update Profile Customization
+// 6. Update Profile Customization
 router.put('/profile', verifyToken, async (req, res) => {
   try {
     const { name, mobile, branch, batchYear, avatarColor, bio } = req.body;
     const user = await User.findById(req.user.id);
 
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found.' });
+      return res.status(404).json({ success: false, message: 'User found error.' });
     }
 
     if (name && name.trim()) user.name = name.trim();
@@ -356,10 +356,10 @@ router.put('/profile', verifyToken, async (req, res) => {
   }
 });
 
-// 6. Change Password
+// 7. Change Password
 router.post('/change-password', verifyToken, async (req, res) => {
   try {
-    const { currentPassword, newPassword, alreadyPass } = req.body;
+    const { currentPassword, newPassword } = req.body;
     if (!newPassword || newPassword.length < 6) {
       return res.status(400).json({ success: false, message: 'New password must be at least 6 characters.' });
     }
