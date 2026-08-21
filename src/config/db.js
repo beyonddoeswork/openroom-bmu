@@ -7,13 +7,13 @@ let mongoServer;
 // Admin Seeder that preserves 2FA secrets and customization across reboots
 const seedAdmin = async () => {
   try {
-    const adminEmail = (process.env.ADMIN_EMAIL || 'admin@openroom.edu').toLowerCase().trim();
+    const adminEmail = (process.env.ADMIN_EMAIL).toLowerCase().trim();
     const existingAdmin = await User.findOne({ email: adminEmail });
 
     if (!existingAdmin) {
-      const hashedPassword = await bcrypt.hash(process.env.ADMIN_PASSWORD || 'Admin@BMU2026!', 10);
+      const hashedPassword = await bcrypt.hash(process.env.ADMIN_PASSWORD, 10);
       await User.create({
-        name: 'BMU Campus Administrator',
+        name: 'OpenRoom Administrator',
         email: adminEmail,
         password: hashedPassword,
         role: 'admin',
