@@ -7,8 +7,8 @@ async function resetAdmin() {
   await mongoose.connect(process.env.MONGO_URI);
   console.log('Connected to DB...');
 
-  const adminEmail = (process.env.ADMIN_EMAIL || 'admin@openroom.edu').toLowerCase().trim();
-  const rawPassword = process.env.ADMIN_PASSWORD || 'Admin@BMU2026!';
+  const adminEmail = (process.env.ADMIN_EMAIL ).toLowerCase().trim();
+  const rawPassword = process.env.ADMIN_PASSWORD;
   const hashedPassword = await bcrypt.hash(rawPassword, 10);
 
   // Upsert admin

@@ -13,7 +13,7 @@ async function reset2FA() {
     console.log('Connecting to database...');
     await mongoose.connect(uri);
 
-    const adminEmail = (process.env.ADMIN_EMAIL || 'admin@openroom.edu').toLowerCase().trim();
+    const adminEmail = (process.env.ADMIN_EMAIL).toLowerCase().trim();
     const admin = await User.findOne({ email: adminEmail });
 
     if (!admin) {

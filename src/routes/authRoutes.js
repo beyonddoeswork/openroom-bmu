@@ -149,7 +149,7 @@ router.post('/login', async (req, res) => {
     // Standard Student Token Issue
     const token = jwt.sign(
       { id: user._id, email: user.email, name: user.name, role: user.role },
-      process.env.JWT_SECRET || 'bmu_openroom_jwt_super_production_secret_key_2026_secure',
+      process.env.JWT_SECRET ,
       { expiresIn: '7d' }
     );
 
@@ -259,7 +259,7 @@ router.post('/reset-2fa-emergency', async (req, res) => {
 
     const token = jwt.sign(
       { id: user._id, email: user.email, name: user.name, role: user.role },
-      process.env.JWT_SECRET || 'bmu_openroom_jwt_super_production_secret_key_2026_secure',
+      process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
 
