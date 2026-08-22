@@ -14,6 +14,7 @@ const authRoutes = require('./src/routes/authRoutes');
 const reportRoutes = require('./src/routes/reportRoutes');
 const reviewRoutes = require('./src/routes/reviewRoutes');
 const adminRoutes = require('./src/routes/adminRoutes');
+const aiRoutes = require('./src/routes/aiRoutes');
 
 const Room = require('./src/models/Room');
 const User = require('./src/models/User');
@@ -25,16 +26,18 @@ const PUBLIC_DIR = path.resolve(__dirname, 'public');
 // Trust reverse proxy (Required for Render & express-rate-limit)
 app.set('trust proxy', 1);
 
-// Security & Parsing Middlewares
+// Security Middlewares
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());
+
+// 1. Body Parsing Middlewares (MUST BE BEFORE ANY ROUTE MOUNTS)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 1. Explicitly serve static assets
+// 2. Explicitly serve static assets
 app.use(express.static(PUBLIC_DIR));
 
-// 2. API Rate Limiter
+// 3. API Rate Limiter
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 300,
@@ -44,14 +47,15 @@ const limiter = rateLimit({
 });
 app.use('/api', limiter);
 
-// 3. Mount API Endpoints
+// 4. Mount API Endpoints (All parsed cleanly)
 app.use('/api/rooms', roomRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/ai', aiRoutes);
 
-// 4. Seed Initial Admin & Campus Rooms
+// 5. Seed Initial Admin & Campus Rooms
 async function seedInitialData() {
   try {
     const adminEmail = (process.env.ADMIN_EMAIL || 'admin@openroom.edu').toLowerCase().trim();
@@ -127,7 +131,7 @@ async function seedInitialData() {
   }
 }
 
-// 5. Explicit Root and Catch-All Handler (Ensures index.html always loads)
+// 6. Explicit Root and Catch-All Handler (Ensures index.html always loads)
 app.get('/', (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
@@ -139,7 +143,7 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
 
-// 6. Async Server Bootstrapper
+// 7. Async Server Bootstrapper
 async function startServer() {
   try {
     await connectDB();

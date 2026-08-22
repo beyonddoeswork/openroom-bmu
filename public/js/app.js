@@ -1,7 +1,7 @@
 /**
  * OpenRoom BMU - Complete Single Page Application Engine
  * Includes: Live Room Finder, 2FA with Emergency Recovery, Profile Customization,
- * Reddit-Style Community Threads & Nested Peer Replies, and Full Admin Operations.
+ * Reddit-Style Community Threads, AI Chatbot Assistant, and AI Timetable Import.
  */
 
 const state = {
@@ -139,7 +139,7 @@ async function RoomsView() {
     <div class="container">
       <div style="margin-bottom:20px;">
         <h2 style="font-family:var(--font-display); font-size:28px;">Campus Rooms</h2>
-        <p style="color:var(--ink-soft);">Crowdsourced live status. Updates auto-reset after 90 minutes.</p>
+        <p style="color:var(--ink-soft);">Crowdsourced and AI schedule-tracked live status.</p>
       </div>
 
       <div class="filter-card">
@@ -277,7 +277,7 @@ function RequestAccessView() {
   `;
 }
 
-// 5. Login View (Holds Login, 2FA Challenge, QR Setup, and Emergency Reset)
+// 5. Login View
 function LoginView() {
   return `
     <div class="auth-panel" id="loginCard">
@@ -301,7 +301,6 @@ function LoginView() {
       </div>
     </div>
 
-    <!-- Container for 2FA Verification / Initial QR Code Setup / Emergency Reset -->
     <div class="auth-panel" id="twoFactorCard" style="display:none;"></div>
   `;
 }
@@ -341,7 +340,6 @@ async function AccountView() {
     <div class="container" style="max-width:680px;">
       <div class="content-card" style="padding:28px; margin-bottom:24px;">
         
-        <!-- Profile Header Badge -->
         <div style="display:flex; align-items:center; gap:18px; margin-bottom:20px; flex-wrap:wrap;">
           <div id="profileAvatarBadge" style="width:72px; height:72px; border-radius:50%; background:${color}; color:#ffffff; display:flex; align-items:center; justify-content:center; font-family:var(--font-display); font-size:30px; font-weight:700; box-shadow:0 4px 14px rgba(0,0,0,0.12); transition: background-color 0.2s;">
             ${initial}
@@ -361,7 +359,6 @@ async function AccountView() {
 
         <hr style="border:none; border-top:1px solid var(--line); margin:18px 0 22px 0;">
 
-        <!-- Profile Customization Form -->
         <h3 style="margin-bottom:14px; font-size:18px;">Profile Details</h3>
         <form id="updateProfileForm">
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
@@ -410,7 +407,6 @@ async function AccountView() {
 
         <hr style="border:none; border-top:1px solid var(--line); margin:28px 0;">
 
-        <!-- Security & Password -->
         <h3 style="margin-bottom:14px; font-size:18px;">Security & Password</h3>
         <form id="changePasswordForm">
           <div class="form-field">
@@ -450,7 +446,6 @@ async function ReviewsView() {
         <p style="color:var(--ink-soft);">Connect with other day scholars, share room tips, and collaborate on campus life.</p>
       </div>
 
-      <!-- Create Thread Card -->
       ${currentUser ? `
         <div class="content-card" style="margin:0 0 24px 0; padding:22px;">
           <h3 style="margin-bottom:14px; font-size:17px;">Create a Discussion Post</h3>
@@ -491,7 +486,6 @@ async function ReviewsView() {
         </div>
       `}
 
-      <!-- Tags Filter Bar -->
       <div style="display:flex; gap:8px; overflow-x:auto; padding-bottom:10px; margin-bottom:16px;">
         ${tags.map(t => `
           <button class="btn btn-sm ${state.threadFilter.tag === t ? 'btn-primary' : 'btn-ghost'} btnTagFilter" data-tag="${t}" style="border-radius:20px; font-size:12px; padding:4px 14px; white-space:nowrap;">
@@ -500,7 +494,6 @@ async function ReviewsView() {
         `).join('')}
       </div>
 
-      <!-- Thread Feed -->
       <div id="threadList" style="display:flex; flex-direction:column; gap:16px;">
         ${reviews.length ? reviews.map(r => renderThreadCard(r, currentUser, isAdmin)).join('') : `
           <div style="text-align:center; padding:40px; color:var(--ink-soft); background:#fff; border-radius:10px; border:1px solid var(--line);">
@@ -522,7 +515,6 @@ function renderThreadCard(r, currentUser, isAdmin) {
     <div class="content-card thread-card" style="margin:0; padding:20px; border-left:4px solid ${r.isNoted ? 'var(--line)' : r.kind === 'suggestion' ? 'var(--navy)' : 'var(--open)'};" data-thread-id="${r._id}">
       <div style="display:flex; gap:14px;">
         
-        <!-- Left Reddit Voting Column -->
         <div style="display:flex; flex-direction:column; align-items:center; min-width:32px;">
           <button class="vote-btn ${upvoted ? 'active' : ''}" onclick="voteThread('${r._id}')" style="background:none; border:none; cursor:pointer; font-size:16px; color:${upvoted ? 'var(--open)' : 'var(--ink-soft)'};" title="Upvote">
             ▲
@@ -530,7 +522,6 @@ function renderThreadCard(r, currentUser, isAdmin) {
           <span style="font-weight:700; font-size:13px; color:var(--ink); margin:2px 0;">${r.score || (r.upvotes?.length || 0)}</span>
         </div>
 
-        <!-- Main Thread Content -->
         <div style="flex:1;">
           <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
             <div style="display:flex; align-items:center; gap:8px;">
@@ -560,7 +551,6 @@ function renderThreadCard(r, currentUser, isAdmin) {
 
           <p style="font-size:14px; color:var(--ink); line-height:1.5; margin-bottom:12px;">${r.body}</p>
 
-          <!-- Official Admin Reply Badge if exists -->
           ${r.adminReply && r.adminReply.message ? `
             <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px; margin-bottom:12px;">
               <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
@@ -572,7 +562,6 @@ function renderThreadCard(r, currentUser, isAdmin) {
             </div>
           ` : ''}
 
-          <!-- Thread Actions Bar -->
           <div style="display:flex; justify-content:space-between; align-items:center; font-size:13px; color:var(--ink-soft); border-top:1px solid var(--line); padding-top:10px; margin-top:10px; flex-wrap:wrap; gap:8px;">
             <div style="display:flex; gap:12px; align-items:center;">
               <span style="cursor:pointer; font-weight:600; color:var(--navy);">
@@ -580,7 +569,6 @@ function renderThreadCard(r, currentUser, isAdmin) {
               </span>
             </div>
 
-            <!-- Admin Note Action Control -->
             ${isAdmin && !r.isNoted ? `
               <button class="btn btn-ghost btn-sm btnMarkNoted" data-id="${r._id}" style="padding:2px 8px; font-size:11px;">
                 📌 Note
@@ -588,7 +576,6 @@ function renderThreadCard(r, currentUser, isAdmin) {
             ` : ''}
           </div>
 
-          <!-- Nested Comments List -->
           <div style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
             ${comments.map(c => {
               const isCommentOwner = currentUser && c.authorEmail && c.authorEmail.toLowerCase() === currentUser.email.toLowerCase();
@@ -619,7 +606,6 @@ function renderThreadCard(r, currentUser, isAdmin) {
               `;
             }).join('')}
 
-            <!-- Quick Comment Box -->
             ${currentUser ? `
               <form onsubmit="submitComment(event, '${r._id}')" style="display:flex; gap:8px; margin-top:6px;">
                 <input type="text" id="comment-input-${r._id}" placeholder="Write a reply to ${r.author}..." required style="flex:1; padding:7px 12px; border-radius:6px; border:1px solid var(--line); font-size:12.5px;" />
@@ -633,96 +619,6 @@ function renderThreadCard(r, currentUser, isAdmin) {
     </div>
   `;
 }
-
-// Global window actions
-window.voteThread = async function(threadId) {
-  if (!state.token) {
-    toast('Please sign in to upvote discussions.', 'default');
-    location.hash = '#/login';
-    return;
-  }
-  try {
-    await api(`/api/reviews/${threadId}/vote`, { method: 'POST' });
-    router();
-  } catch (err) {}
-};
-
-window.submitComment = async function(e, threadId) {
-  e.preventDefault();
-  if (!state.token) {
-    toast('Please sign in to reply.', 'default');
-    location.hash = '#/login';
-    return;
-  }
-  const input = document.getElementById(`comment-input-${threadId}`);
-  const body = input ? input.value.trim() : '';
-  if (!body) return;
-
-  try {
-    await api(`/api/reviews/${threadId}/comments`, {
-      method: 'POST',
-      body: JSON.stringify({ body })
-    });
-    toast('Reply posted!', 'success');
-    router();
-  } catch (err) {}
-};
-
-window.deleteThread = async function(threadId) {
-  if (!confirm('Are you sure you want to delete this discussion?')) return;
-  try {
-    const res = await api(`/api/reviews/${threadId}`, { method: 'DELETE' });
-    toast(res.message || 'Discussion deleted.', 'success');
-    router();
-  } catch (err) {}
-};
-
-window.deleteComment = async function(threadId, commentId) {
-  if (!confirm('Are you sure you want to delete this reply?')) return;
-  try {
-    const res = await api(`/api/reviews/${threadId}/comments/${commentId}`, { method: 'DELETE' });
-    toast(res.message || 'Reply deleted.', 'success');
-    router();
-  } catch (err) {}
-};
-
-// Global window actions for direct onclick handling
-window.voteThread = async function(threadId) {
-  if (!state.token) {
-    toast('Please sign in to upvote discussions.', 'default');
-    location.hash = '#/login';
-    return;
-  }
-  try {
-    await api(`/api/reviews/${threadId}/vote`, { method: 'POST' });
-    router();
-  } catch (err) {
-    // Handled by API dispatcher
-  }
-};
-
-window.submitComment = async function(e, threadId) {
-  e.preventDefault();
-  if (!state.token) {
-    toast('Please sign in to reply.', 'default');
-    location.hash = '#/login';
-    return;
-  }
-  const input = document.getElementById(`comment-input-${threadId}`);
-  const body = input ? input.value.trim() : '';
-  if (!body) return;
-
-  try {
-    await api(`/api/reviews/${threadId}/comments`, {
-      method: 'POST',
-      body: JSON.stringify({ body })
-    });
-    toast('Reply posted!', 'success');
-    router();
-  } catch (err) {
-    // Handled by API dispatcher
-  }
-};
 
 // 8. Admin View
 async function AdminView() {
@@ -749,9 +645,10 @@ async function AdminView() {
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px; flex-wrap:wrap; gap:12px;">
         <div>
           <h1 style="font-family:var(--font-display); font-size:30px;">BMU Administrator Center</h1>
-          <p style="color:var(--ink-soft);">Assign custom <b>@openroom.xyz</b> emails, manage passwords, and sync Excel roster.</p>
+          <p style="color:var(--ink-soft);">Assign custom <b>@openroom.xyz</b> emails, manage passwords, and sync AI schedules.</p>
         </div>
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn btn-open btn-sm" id="btnOpenAiModal">🤖 AI Timetable Import (.md)</button>
           <button class="btn btn-primary btn-sm" id="btnOpenAddRoomModal">➕ Add New Room</button>
           <a href="/api/admin/export-excel" class="btn btn-excel btn-sm" download>
             📥 Download Day Scholars Excel (.xlsx)
@@ -759,7 +656,6 @@ async function AdminView() {
         </div>
       </div>
 
-      <!-- Campus Statistics Counters -->
       <div class="hero-metrics" style="margin-top:0; margin-bottom:24px;">
         <div class="metric-box"><b>${stats.totalRooms}</b><span>Total Rooms</span></div>
         <div class="metric-box"><b>${stats.emptyRooms}</b><span>Free Rooms</span></div>
@@ -767,7 +663,6 @@ async function AdminView() {
         <div class="metric-box"><b>${stats.pendingRequests}</b><span>Pending Signups</span></div>
       </div>
 
-      <!-- Student Registration & Excel Queue -->
       <div class="content-card" style="max-width:100%; margin:0 0 30px 0; padding:22px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
           <div>
@@ -824,7 +719,6 @@ async function AdminView() {
         </div>
       </div>
 
-      <!-- Live Room Management Section -->
       <div class="content-card" style="max-width:100%; margin:0 0 30px 0; padding:22px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
           <div>
@@ -869,7 +763,6 @@ async function AdminView() {
         </div>
       </div>
 
-      <!-- Recent Report Incidents -->
       <div class="content-card" style="max-width:100%; margin:0; padding:22px;">
         <h3>Recent Room Reports (${reports.length})</h3>
         <div style="margin-top:12px; display:flex; flex-direction:column; gap:10px;">
@@ -889,7 +782,7 @@ async function AdminView() {
     <div id="provisionModal" class="modal-overlay" style="display:none;">
       <div class="modal-window">
         <h3>Assign Student Credentials</h3>
-        <p style="font-size:13px; color:var(--ink-soft); margin:6px 0 16px;">Set their custom email address and initial password. This will auto-update the Excel file.</p>
+        <p style="font-size:13px; color:var(--ink-soft); margin:6px 0 16px;">Set their custom email address and initial password.</p>
         <form id="provisionForm">
           <input type="hidden" id="provReqId">
           <input type="hidden" id="provMobile">
@@ -987,6 +880,30 @@ async function AdminView() {
         </form>
       </div>
     </div>
+
+    <!-- Modal 4: AI Timetable Upload (.md) -->
+    <div id="aiTimetableModal" class="modal-overlay" style="display:none;">
+      <div class="modal-window" style="max-width:540px;">
+        <h3>🤖 AI Campus Timetable Sync</h3>
+        <p style="font-size:13px; color:var(--ink-soft); margin:6px 0 16px;">
+          Upload a university timetable in <b>.md</b> format. Gemini AI will automatically extract all rooms, configure weekly lecture hours, and auto-toggle live room statuses.
+        </p>
+        <form id="aiTimetableForm">
+          <div class="form-field">
+            <label>Upload .md File</label>
+            <input type="file" id="aiFile" accept=".md,.txt">
+          </div>
+          <div class="form-field">
+            <label>Or Paste Raw Markdown</label>
+            <textarea id="aiMarkdownText" rows="6" placeholder="# BMU CSE Timetable&#10;## Monday&#10;- 09:00 - 10:30 | Room E2-101 | Data Structures"></textarea>
+          </div>
+          <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
+            <button type="button" class="btn btn-ghost btn-sm" id="btnCloseAiModal">Cancel</button>
+            <button type="submit" class="btn btn-primary btn-sm" id="btnRunAiSync">Process with Gemini AI</button>
+          </div>
+        </form>
+      </div>
+    </div>
   `;
 }
 
@@ -1013,9 +930,6 @@ function NotFoundView(customMessage = null) {
           <button class="btn btn-ghost" data-route="#/">
             🏛️ Campus Overview
           </button>
-        </div>
-        <div style="margin-top: 32px; padding-top: 18px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-soft);">
-          Looking for a specific building? Check <b>E-2 Building</b>, <b>Gateway Building</b>, <b>Central Library</b>, or <b>Innovation Hub</b>.
         </div>
       </div>
     </div>
@@ -1508,29 +1422,63 @@ function attachReviewForm() {
       router();
     });
   });
-
-  document.querySelectorAll('.btnDeleteReview').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const id = btn.getAttribute('data-id');
-      if (!confirm('Are you sure you want to delete this discussion?')) return;
-
-      await api(`/api/reviews/${id}`, { method: 'DELETE' });
-      toast('Discussion removed successfully.', 'success');
-      router();
-    });
-  });
 }
 
 function attachAdminHandlers() {
   const provModal = document.getElementById('provisionModal');
   const resetModal = document.getElementById('resetStudentModal');
   const addRoomModal = document.getElementById('addRoomModal');
+  const aiModal = document.getElementById('aiTimetableModal');
+
+  // AI Timetable Modal Triggers
+  document.getElementById('btnOpenAiModal')?.addEventListener('click', () => aiModal.style.display = 'flex');
+  document.getElementById('btnCloseAiModal')?.addEventListener('click', () => aiModal.style.display = 'none');
 
   document.getElementById('btnOpenAddRoomModal')?.addEventListener('click', () => addRoomModal.style.display = 'flex');
   document.getElementById('btnCloseAddRoomModal')?.addEventListener('click', () => addRoomModal.style.display = 'none');
 
   document.getElementById('btnCloseProvisionModal')?.addEventListener('click', () => provModal.style.display = 'none');
   document.getElementById('btnCloseResetModal')?.addEventListener('click', () => resetModal.style.display = 'none');
+
+  // AI Timetable Form Processing
+  document.getElementById('aiTimetableForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fileInput = document.getElementById('aiFile');
+    const markdownText = document.getElementById('aiMarkdownText').value;
+    const submitBtn = document.getElementById('btnRunAiSync');
+
+    const formData = new FormData();
+    if (fileInput.files[0]) {
+      formData.append('timetableFile', fileInput.files[0]);
+    } else if (markdownText.trim()) {
+      formData.append('markdownText', markdownText.trim());
+    } else {
+      toast('Please upload a .md file or paste text.', 'error');
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.innerText = 'Analyzing with Gemini AI...';
+
+    try {
+      const res = await fetch('/api/ai/upload-timetable', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${state.token}` },
+        body: formData
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message);
+
+      toast(data.message, 'success');
+      aiModal.style.display = 'none';
+      router();
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.innerText = 'Process with Gemini AI';
+    }
+  });
 
   document.querySelectorAll('.btnOpenProvisionModal').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1654,3 +1602,162 @@ function attachAdminHandlers() {
     router();
   });
 }
+
+// ==========================================
+// GLOBAL ACTION HANDLERS
+// ==========================================
+
+window.voteThread = async function(threadId) {
+  if (!state.token) {
+    toast('Please sign in to upvote discussions.', 'default');
+    location.hash = '#/login';
+    return;
+  }
+  try {
+    await api(`/api/reviews/${threadId}/vote`, { method: 'POST' });
+    router();
+  } catch (err) {}
+};
+
+window.submitComment = async function(e, threadId) {
+  e.preventDefault();
+  if (!state.token) {
+    toast('Please sign in to reply.', 'default');
+    location.hash = '#/login';
+    return;
+  }
+  const input = document.getElementById(`comment-input-${threadId}`);
+  const body = input ? input.value.trim() : '';
+  if (!body) return;
+
+  try {
+    await api(`/api/reviews/${threadId}/comments`, {
+      method: 'POST',
+      body: JSON.stringify({ body })
+    });
+    toast('Reply posted!', 'success');
+    router();
+  } catch (err) {}
+};
+
+window.deleteThread = async function(threadId) {
+  if (!confirm('Are you sure you want to delete this discussion?')) return;
+  try {
+    const res = await api(`/api/reviews/${threadId}`, { method: 'DELETE' });
+    toast(res.message || 'Discussion deleted.', 'success');
+    router();
+  } catch (err) {}
+};
+
+window.deleteComment = async function(threadId, commentId) {
+  if (!confirm('Are you sure you want to delete this reply?')) return;
+  try {
+    const res = await api(`/api/reviews/${threadId}/comments/${commentId}`, { method: 'DELETE' });
+    toast(res.message || 'Reply deleted.', 'success');
+    router();
+  } catch (err) {}
+};
+
+// ==========================================
+// GLOBAL CHATBOT & MARKDOWN FORMATTER
+// ==========================================
+
+function formatAiMessage(text) {
+  if (!text) return '';
+
+  let html = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+    .replace(/__(.*?)__/g, '<b>$1</b>')
+    .replace(/`([^`]+)`/g, '<code style="background:#e2e8f0; padding:1px 5px; border-radius:4px; font-size:12px;">$1</code>');
+
+  const lines = html.split('\n');
+  let inList = false;
+  const processedLines = [];
+
+  for (let line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('* ') || trimmed.startsWith('- ')) {
+      if (!inList) {
+        processedLines.push('<ul style="margin:6px 0; padding-left:18px; list-style-type:disc;">');
+        inList = true;
+      }
+      processedLines.push(`<li style="margin-bottom:4px;">${trimmed.substring(2)}</li>`);
+    } else {
+      if (inList) {
+        processedLines.push('</ul>');
+        inList = false;
+      }
+      if (trimmed.length > 0) {
+        processedLines.push(`<p style="margin:4px 0;">${trimmed}</p>`);
+      }
+    }
+  }
+
+  if (inList) {
+    processedLines.push('</ul>');
+  }
+
+  return processedLines.join('');
+}
+
+window.toggleCampusChat = function(forceState) {
+  const panel = document.getElementById('aiChatPanel');
+  if (!panel) return;
+  
+  if (typeof forceState === 'boolean') {
+    panel.style.display = forceState ? 'flex' : 'none';
+  } else {
+    panel.style.display = (panel.style.display === 'none' || panel.style.display === '') ? 'flex' : 'none';
+  }
+};
+
+window.sendCampusChatMessage = async function(e) {
+  e.preventDefault();
+  const input = document.getElementById('aiChatInput');
+  const chatLog = document.getElementById('aiChatLog');
+  if (!input || !chatLog) return;
+
+  const msg = input.value.trim();
+  if (!msg) return;
+
+  chatLog.innerHTML += `
+    <div style="align-self:flex-end; background:#131D35; color:#fff; padding:8px 12px; border-radius:8px; max-width:80%; line-height:1.4;">
+      ${msg}
+    </div>
+  `;
+  input.value = '';
+  chatLog.scrollTop = chatLog.scrollHeight;
+
+  const typingId = 'typing-' + Date.now();
+  chatLog.innerHTML += `
+    <div id="${typingId}" style="background:#fff; border:1px solid #CBD5E1; padding:8px 12px; border-radius:8px; font-size:12px; color:#64748B; max-width:80%;">
+      Gemini is checking live rooms...
+    </div>
+  `;
+  chatLog.scrollTop = chatLog.scrollHeight;
+
+  try {
+    const res = await api('/api/ai/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message: msg })
+    });
+
+    document.getElementById(typingId)?.remove();
+    chatLog.innerHTML += `
+      <div style="background:#ffffff; border:1px solid #E2E8F0; padding:10px 14px; border-radius:8px; line-height:1.5; max-width:85%; font-size:13px; color:#1e293b;">
+        ${formatAiMessage(res.reply)}
+      </div>
+    `;
+  } catch (err) {
+    document.getElementById(typingId)?.remove();
+    chatLog.innerHTML += `
+      <div style="background:#FEF2F2; border:1px solid #FECACA; color:#B91C1C; padding:8px 12px; border-radius:8px; font-size:12px;">
+        <b>Error:</b> ${err.message}
+      </div>
+    `;
+  }
+  chatLog.scrollTop = chatLog.scrollHeight;
+};
