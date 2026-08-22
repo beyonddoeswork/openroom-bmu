@@ -1,4 +1,3 @@
-const { sendCredentialsEmail } = require('../services/emailService');
 const express = require('express');
 const router = express.Router();
 const fs = require('fs');
@@ -9,6 +8,7 @@ const User = require('../models/User');
 const Room = require('../models/Room');
 const Report = require('../models/Report');
 const AccessRequest = require('../models/AccessRequest');
+const PasswordReset = require('../models/PasswordReset');
 const { verifyAdmin } = require('../middleware/auth');
 const { generateRequestsExcel } = require('../services/excelService');
 
@@ -36,15 +36,16 @@ async function syncExcelFile() {
   }
 }
 
-// 1. Admin Overview
+// 1. Admin Overview (Includes Password Reset Alerts)
 router.get('/overview', verifyAdmin, async (req, res) => {
   try {
-    const [totalRooms, emptyRooms, totalReports, requests, reports] = await Promise.all([
+    const [totalRooms, emptyRooms, totalReports, requests, reports, resetAlerts] = await Promise.all([
       Room.countDocuments(),
       Room.countDocuments({ status: 'empty' }),
       Report.countDocuments(),
       AccessRequest.find().sort({ createdAt: -1 }),
-      Report.find().sort({ reportedAt: -1 }).limit(10)
+      Report.find().sort({ reportedAt: -1 }).limit(10),
+      PasswordReset.find({ status: 'pending' }).sort({ requestedAt: -1 })
     ]);
 
     res.json({
@@ -54,17 +55,38 @@ router.get('/overview', verifyAdmin, async (req, res) => {
         emptyRooms,
         occupiedRooms: totalRooms - emptyRooms,
         totalReports,
-        pendingRequests: requests.filter(r => r.status === 'pending').length
+        pendingRequests: requests.filter(r => r.status === 'pending').length,
+        pendingResets: resetAlerts.length
       },
       requests,
-      reports
+      reports,
+      resetAlerts
     });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to fetch admin overview.' });
   }
 });
 
-// 2. Export Excel (.xlsx) Download
+// 2. Resolve / Mark Password Reset Ticket Done
+router.post('/resolve-password-reset', verifyAdmin, async (req, res) => {
+  try {
+    const { resetId } = req.body;
+    if (!resetId) {
+      return res.status(400).json({ success: false, message: 'Reset ID is required.' });
+    }
+
+    await PasswordReset.findByIdAndUpdate(resetId, {
+      status: 'resolved',
+      resolvedAt: new Date()
+    });
+
+    res.json({ success: true, message: 'Password reset ticket marked as resolved.' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to resolve reset ticket.' });
+  }
+});
+
+// 3. Export Excel (.xlsx) Download
 router.get('/export-excel', verifyAdmin, async (req, res) => {
   try {
     const requests = await AccessRequest.find().sort({ createdAt: -1 });
@@ -78,7 +100,7 @@ router.get('/export-excel', verifyAdmin, async (req, res) => {
   }
 });
 
-// 3. Admin: Provision User with Custom Email & Password
+// 4. Admin: Provision User with Custom Email & Password
 router.post('/provision-user', verifyAdmin, async (req, res) => {
   try {
     const { requestId, name, customEmail, password, mobile } = req.body;
@@ -88,13 +110,11 @@ router.post('/provision-user', verifyAdmin, async (req, res) => {
 
     const cleanEmail = customEmail.toLowerCase().trim();
 
-    // Check if user already exists
     const existing = await User.findOne({ email: cleanEmail });
     if (existing) {
       return res.status(400).json({ success: false, message: `An account with ${cleanEmail} already exists.` });
     }
 
-    // Hash password and create student user
     const hashedPassword = await bcrypt.hash(password, 10);
     await User.create({
       name: name.trim(),
@@ -104,7 +124,6 @@ router.post('/provision-user', verifyAdmin, async (req, res) => {
       mobile: mobile || 'N/A'
     });
 
-    // Update AccessRequest
     if (requestId) {
       await AccessRequest.findByIdAndUpdate(requestId, {
         status: 'approved',
@@ -113,7 +132,6 @@ router.post('/provision-user', verifyAdmin, async (req, res) => {
       });
     }
 
-    // Auto-update the Excel file
     await syncExcelFile();
 
     res.status(201).json({
@@ -126,7 +144,7 @@ router.post('/provision-user', verifyAdmin, async (req, res) => {
   }
 });
 
-// 4. Admin: Reset/Change Student Password or Email Manually
+// 5. Admin: Reset/Change Student Password or Email Manually
 router.post('/reset-student-password', verifyAdmin, async (req, res) => {
   try {
     const { requestId, newPassword, newEmail } = req.body;
@@ -143,7 +161,6 @@ router.post('/reset-student-password', verifyAdmin, async (req, res) => {
     const targetEmail = (newEmail || oldEmail).toLowerCase().trim();
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-    // Update or recreate user account
     if (oldEmail) {
       await User.findOneAndUpdate(
         { email: oldEmail },
@@ -159,13 +176,11 @@ router.post('/reset-student-password', verifyAdmin, async (req, res) => {
       });
     }
 
-    // Update the request log
     reqDoc.status = 'approved';
     reqDoc.provisionedEmail = targetEmail;
     reqDoc.temporaryPassword = newPassword;
     await reqDoc.save();
 
-    // Auto-update Excel file
     await syncExcelFile();
 
     res.json({

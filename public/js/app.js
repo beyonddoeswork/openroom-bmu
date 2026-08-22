@@ -1,16 +1,19 @@
 /**
- * OpenRoom BMU - Complete Single Page Application Engine
- * Includes: Live Room Finder, 2FA with Emergency Recovery, Profile Customization,
- * Reddit-Style Community Threads, AI Chatbot Assistant, and AI Timetable Import.
+ * OpenRoom BMU - High-Performance Single Page Application Engine
+ * Optimizations: Client-Side SWR Cache for 0ms Tab Switching,
+ * Live Room Finder, 2FA, AI Chatbot Assistant, and Timetable Sync.
  */
 
 const state = {
   rooms: [],
+  roomsLastFetched: 0,
   user: JSON.parse(localStorage.getItem('openroom_user') || 'null'),
   token: localStorage.getItem('openroom_token') || null,
   filters: { building: '', search: '', status: '' },
   threadFilter: { tag: 'All', sort: 'hot' }
 };
+
+const CACHE_TTL_MS = 30000; // 30-second in-memory client cache
 
 // UI Notification Controller
 function toast(message, type = 'default') {
@@ -47,6 +50,23 @@ async function api(url, options = {}) {
   }
 }
 
+// High-Speed Cached Rooms Fetcher
+async function getCachedRooms(forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && state.rooms.length > 0 && (now - state.roomsLastFetched < CACHE_TTL_MS)) {
+    return state.rooms;
+  }
+
+  try {
+    const res = await api('/api/rooms');
+    state.rooms = res.data || [];
+    state.roomsLastFetched = Date.now();
+  } catch (err) {
+    console.warn('Using cached rooms fallback:', err.message);
+  }
+  return state.rooms;
+}
+
 // Navigation Bar
 function renderNav() {
   const nav = document.getElementById('navBar');
@@ -76,20 +96,12 @@ function renderNav() {
 }
 
 // ==========================================
-// VIEWS
+// VIEWS (Instant Cached Render)
 // ==========================================
 
-// 1. Home View
+// 1. Home View (0ms Instant Load)
 async function HomeView() {
-  let rooms = [];
-  try {
-    const res = await api('/api/rooms');
-    state.rooms = res.data || [];
-    rooms = state.rooms;
-  } catch (err) {
-    console.warn('Could not fetch rooms immediately:', err.message);
-  }
-
+  const rooms = await getCachedRooms();
   const emptyCount = rooms.filter(r => r.status === 'empty').length;
   const sample = rooms.slice(0, 8);
 
@@ -129,11 +141,16 @@ async function HomeView() {
   `;
 }
 
-// 2. Rooms Directory View
+// 2. Rooms Directory View (Instant Load)
 async function RoomsView() {
-  const res = await api('/api/rooms');
-  state.rooms = res.data;
   const BUILDINGS = ['E-2 Building', 'Gateway Building', 'Central Library', 'Innovation Hub'];
+
+  // Trigger background fetch if cache empty
+  if (state.rooms.length === 0) {
+    await getCachedRooms();
+  } else {
+    getCachedRooms(); // Background revalidation
+  }
 
   return `
     <div class="container">
@@ -143,15 +160,15 @@ async function RoomsView() {
       </div>
 
       <div class="filter-card">
-        <input type="text" id="filterSearch" placeholder="Search room code (e.g. E2-101, GW-201, LIB-101)...">
+        <input type="text" id="filterSearch" value="${state.filters.search}" placeholder="Search room code (e.g. E2-101, GW-201, LIB-101)...">
         <select id="filterBuilding">
           <option value="">All Buildings</option>
-          ${BUILDINGS.map(b => `<option value="${b}">${b}</option>`).join('')}
+          ${BUILDINGS.map(b => `<option value="${b}" ${state.filters.building === b ? 'selected' : ''}>${b}</option>`).join('')}
         </select>
         <select id="filterStatus">
           <option value="">All Statuses</option>
-          <option value="empty">Empty Only</option>
-          <option value="busy">Occupied Only</option>
+          <option value="empty" ${state.filters.status === 'empty' ? 'selected' : ''}>Empty Only</option>
+          <option value="busy" ${state.filters.status === 'busy' ? 'selected' : ''}>Occupied Only</option>
         </select>
       </div>
 
@@ -192,9 +209,8 @@ function renderRoomsMatrix() {
 
 // 3. Room Detail View
 async function RoomDetailView(code) {
-  const res = await api('/api/rooms');
-  state.rooms = res.data;
-  const room = state.rooms.find(r => r.code.toUpperCase() === code.toUpperCase());
+  const rooms = await getCachedRooms();
+  const room = rooms.find(r => r.code.toUpperCase() === code.toUpperCase());
   
   if (!room) {
     return NotFoundView(`Room code "<b>${code.toUpperCase()}</b>" was not found in the BMU Campus Directory.`);
@@ -277,7 +293,7 @@ function RequestAccessView() {
   `;
 }
 
-// 5. Login View
+// 5. Login View (With Forgot Password Modal)
 function LoginView() {
   return `
     <div class="auth-panel" id="loginCard">
@@ -291,13 +307,36 @@ function LoginView() {
           <input type="text" id="loginEmail" required placeholder="Enter your email">
         </div>
         <div class="form-field">
-          <label>Password</label>
-          <input type="password" id="loginPassword" required placeholder="••••••••">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <label style="margin:0;">Password</label>
+            <a href="javascript:void(0)" id="btnOpenForgotModal" style="font-size:11px; color:#d9383a; font-weight:600;">Forgot Password?</a>
+          </div>
+          <input type="password" id="loginPassword" required placeholder="••••••••" style="margin-top:4px;">
         </div>
         <button type="submit" class="btn btn-primary btn-block" id="btnSubmitLogin">Sign In</button>
       </form>
       <div style="margin-top:16px; font-size:12px; color:var(--ink-soft); text-align:center;">
         Need an account? <a href="#/request-access" style="color:var(--navy); font-weight:600;">Request Day Scholar Access</a>
+      </div>
+    </div>
+
+    <!-- Forgot Password Modal -->
+    <div id="forgotPasswordModal" class="modal-overlay" style="display:none;">
+      <div class="modal-window" style="max-width:440px;">
+        <h3>🔑 Forgot Password</h3>
+        <p style="font-size:13px; color:var(--ink-soft); margin:6px 0 16px;">
+          Enter your login email. An alert will be dispatched to the Campus Administrator to verify your identity and email your login credentials.
+        </p>
+        <form id="forgotPasswordForm">
+          <div class="form-field">
+            <label>Your Email (@openroom.xyz or BMU Email)</label>
+            <input type="email" id="forgotEmailInput" required placeholder="e.g. tanmay@openroom.xyz">
+          </div>
+          <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:18px;">
+            <button type="button" class="btn btn-ghost btn-sm" id="btnCloseForgotModal">Cancel</button>
+            <button type="submit" class="btn btn-primary btn-sm" id="btnSubmitForgot">Alert Admin</button>
+          </div>
+        </form>
       </div>
     </div>
 
@@ -308,16 +347,6 @@ function LoginView() {
 // 6. User Profile Customization View
 async function AccountView() {
   if (!state.user || !state.token) return LoginView();
-
-  try {
-    const res = await api('/api/auth/me');
-    if (res.user) {
-      state.user = { ...state.user, ...res.user };
-      localStorage.setItem('openroom_user', JSON.stringify(state.user));
-    }
-  } catch (err) {
-    console.warn('Using local cache for account view');
-  }
 
   const u = state.user;
   const initial = (u.name || 'U').charAt(0).toUpperCase();
@@ -632,13 +661,12 @@ async function AdminView() {
     `;
   }
 
-  const [overviewRes, roomsRes] = await Promise.all([
+  const [overviewRes, allRooms] = await Promise.all([
     api('/api/admin/overview'),
-    api('/api/rooms')
+    getCachedRooms(true)
   ]);
 
-  const { stats, requests, reports } = overviewRes;
-  const allRooms = roomsRes.data;
+  const { stats, requests, reports, resetAlerts = [] } = overviewRes;
 
   return `
     <div class="container">
@@ -661,8 +689,63 @@ async function AdminView() {
         <div class="metric-box"><b>${stats.emptyRooms}</b><span>Free Rooms</span></div>
         <div class="metric-box"><b>${stats.occupiedRooms}</b><span>Occupied</span></div>
         <div class="metric-box"><b>${stats.pendingRequests}</b><span>Pending Signups</span></div>
+        <div class="metric-box" style="border-left:3px solid #D9383A;"><b>${stats.pendingResets || resetAlerts.length}</b><span>Password Alerts</span></div>
       </div>
 
+      <!-- Urgent Password Reset Requests Table -->
+      <div class="content-card" style="max-width:100%; margin:0 0 30px 0; padding:22px; border-left:4px solid #D9383A;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
+          <div>
+            <h3 style="color:#D9383A;">🚨 Password Reset Requests (${resetAlerts.length})</h3>
+            <p style="font-size:13px; color:var(--ink-soft);">Students requesting credentials. Click "Email Credentials" to open pre-filled mail.</p>
+          </div>
+        </div>
+
+        <div style="overflow-x:auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Student Name</th>
+                <th>Submitted Email</th>
+                <th>BMU Email</th>
+                <th>Requested At</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${resetAlerts.length ? resetAlerts.map(t => {
+                const matchingReq = requests.find(r => 
+                  (r.bmuEmail && r.bmuEmail.toLowerCase() === t.bmuEmail.toLowerCase()) || 
+                  (r.provisionedEmail && r.provisionedEmail.toLowerCase() === t.email.toLowerCase())
+                );
+                const currentPass = matchingReq ? matchingReq.temporaryPassword : 'Use Reset Button';
+                const mailSubject = encodeURIComponent('Your OpenRoom BMU Login Credentials');
+                const mailBody = encodeURIComponent(`Hi ${t.name},\n\nHere are your OpenRoom BMU login details:\n\nEmail: ${t.email}\nPassword: ${currentPass}\n\nLogin Portal: https://openroom-8g57.onrender.com/#/login\n\nRegards,\nCampus Administrator`);
+                const mailtoLink = `mailto:${t.bmuEmail}?subject=${mailSubject}&body=${mailBody}`;
+
+                return `
+                  <tr>
+                    <td><b>${t.name}</b></td>
+                    <td><code>${t.email}</code></td>
+                    <td>${t.bmuEmail || '—'}</td>
+                    <td>${new Date(t.requestedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+                    <td>
+                      <a href="${mailtoLink}" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none; padding:4px 8px; font-size:12px;">
+                        📧 Email Credentials
+                      </a>
+                      <button class="btn btn-ghost btn-sm btnResolveReset" data-id="${t._id}" style="margin-left:6px; padding:4px 8px; font-size:12px;">
+                        ✓ Mark Resolved
+                      </button>
+                    </td>
+                  </tr>
+                `;
+              }).join('') : '<tr><td colspan="5" style="text-align:center; padding:18px; color:var(--ink-soft);">No pending password reset requests.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Day Scholar User Management -->
       <div class="content-card" style="max-width:100%; margin:0 0 30px 0; padding:22px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
           <div>
@@ -719,6 +802,7 @@ async function AdminView() {
         </div>
       </div>
 
+      <!-- Campus Room Directory Control -->
       <div class="content-card" style="max-width:100%; margin:0 0 30px 0; padding:22px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
           <div>
@@ -763,6 +847,7 @@ async function AdminView() {
         </div>
       </div>
 
+      <!-- Recent Room Incidents -->
       <div class="content-card" style="max-width:100%; margin:0; padding:22px;">
         <h3>Recent Room Reports (${reports.length})</h3>
         <div style="margin-top:12px; display:flex; flex-direction:column; gap:10px;">
@@ -937,7 +1022,7 @@ function NotFoundView(customMessage = null) {
 }
 
 // ==========================================
-// SPA ROUTER DISPATCHER
+// SPA ROUTER DISPATCHER (0ms Latency Routing)
 // ==========================================
 async function router() {
   renderNav();
@@ -980,7 +1065,10 @@ async function router() {
 }
 
 window.addEventListener('hashchange', router);
-window.addEventListener('DOMContentLoaded', router);
+window.addEventListener('DOMContentLoaded', () => {
+  getCachedRooms(); // Pre-warm cache on initial page load
+  router();
+});
 
 // Route click delegation & Logout
 document.addEventListener('click', (e) => {
@@ -1021,11 +1109,13 @@ function attachDetailListeners(code) {
   document.getElementById('voteEmpty')?.addEventListener('click', async () => {
     await api(`/api/rooms/${code}/vote`, { method: 'POST', body: JSON.stringify({ action: 'empty' }) });
     toast(`${code} marked as empty.`, 'success');
+    await getCachedRooms(true);
     router();
   });
   document.getElementById('voteBusy')?.addEventListener('click', async () => {
     const res = await api(`/api/rooms/${code}/vote`, { method: 'POST', body: JSON.stringify({ action: 'busy' }) });
     toast(res.message, 'default');
+    await getCachedRooms(true);
     router();
   });
 
@@ -1053,6 +1143,7 @@ function attachDetailListeners(code) {
         method: 'POST',
         body: JSON.stringify({ roomCode: code, note: 'Found occupied upon arrival' })
       });
+      await getCachedRooms(true);
       let altHtml = res.alternativeRoom 
         ? `<div style="margin-top:8px;">Try this nearby room: <a href="#/room/${res.alternativeRoom.code}"><b>${res.alternativeRoom.code}</b> (${res.alternativeRoom.building})</a></div>`
         : '';
@@ -1070,6 +1161,7 @@ function attachDetailListeners(code) {
       method: 'POST',
       body: JSON.stringify({ roomCode: code, note })
     });
+    await getCachedRooms(true);
     const feedback = document.getElementById('reportResultFeedback');
     feedback.innerHTML = `
       <div style="color:var(--busy); font-size:13px; font-weight:600;">Report recorded. Room status set to occupied.</div>
@@ -1104,7 +1196,38 @@ function attachLoginForm() {
   const loginForm = document.getElementById('userLoginForm');
   const loginCard = document.getElementById('loginCard');
   const twoFactorCard = document.getElementById('twoFactorCard');
+  const forgotModal = document.getElementById('forgotPasswordModal');
   const errBox = document.getElementById('loginInlineErr');
+
+  document.getElementById('btnOpenForgotModal')?.addEventListener('click', () => {
+    if (forgotModal) forgotModal.style.display = 'flex';
+  });
+  document.getElementById('btnCloseForgotModal')?.addEventListener('click', () => {
+    if (forgotModal) forgotModal.style.display = 'none';
+  });
+
+  document.getElementById('forgotPasswordForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('forgotEmailInput').value.trim();
+    const submitBtn = document.getElementById('btnSubmitForgot');
+
+    submitBtn.disabled = true;
+    submitBtn.innerText = 'Alerting Admin...';
+
+    try {
+      const res = await api('/api/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ email })
+      });
+      toast(res.message, 'success');
+      if (forgotModal) forgotModal.style.display = 'none';
+      document.getElementById('forgotEmailInput').value = '';
+    } catch (err) {
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.innerText = 'Alert Admin';
+    }
+  });
 
   loginForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1375,7 +1498,6 @@ function attachAccountForm() {
       document.getElementById('currentPass').value = '';
       document.getElementById('newPass').value = '';
     } catch (err) {
-      // Handled by API dispatcher
     } finally {
       btn.disabled = false;
     }
@@ -1430,7 +1552,6 @@ function attachAdminHandlers() {
   const addRoomModal = document.getElementById('addRoomModal');
   const aiModal = document.getElementById('aiTimetableModal');
 
-  // AI Timetable Modal Triggers
   document.getElementById('btnOpenAiModal')?.addEventListener('click', () => aiModal.style.display = 'flex');
   document.getElementById('btnCloseAiModal')?.addEventListener('click', () => aiModal.style.display = 'none');
 
@@ -1440,7 +1561,20 @@ function attachAdminHandlers() {
   document.getElementById('btnCloseProvisionModal')?.addEventListener('click', () => provModal.style.display = 'none');
   document.getElementById('btnCloseResetModal')?.addEventListener('click', () => resetModal.style.display = 'none');
 
-  // AI Timetable Form Processing
+  document.querySelectorAll('.btnResolveReset').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const resetId = btn.getAttribute('data-id');
+      try {
+        await api('/api/admin/resolve-password-reset', {
+          method: 'POST',
+          body: JSON.stringify({ resetId })
+        });
+        toast('Password reset request marked as resolved.', 'success');
+        router();
+      } catch (err) {}
+    });
+  });
+
   document.getElementById('aiTimetableForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const fileInput = document.getElementById('aiFile');
@@ -1471,6 +1605,7 @@ function attachAdminHandlers() {
 
       toast(data.message, 'success');
       aiModal.style.display = 'none';
+      await getCachedRooms(true);
       router();
     } catch (err) {
       toast(err.message, 'error');
@@ -1570,6 +1705,7 @@ function attachAdminHandlers() {
         body: JSON.stringify({ action: newStatus })
       });
       toast(`Room ${code} set to ${newStatus}.`, 'success');
+      await getCachedRooms(true);
       router();
     });
   });
@@ -1581,6 +1717,7 @@ function attachAdminHandlers() {
 
       await api(`/api/rooms/${code}`, { method: 'DELETE' });
       toast(`Room ${code} deleted permanently.`, 'success');
+      await getCachedRooms(true);
       router();
     });
   });
@@ -1599,6 +1736,7 @@ function attachAdminHandlers() {
     });
     toast(`Room ${code} created successfully!`, 'success');
     addRoomModal.style.display = 'none';
+    await getCachedRooms(true);
     router();
   });
 }

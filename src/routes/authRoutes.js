@@ -9,6 +9,7 @@ const QRCode = require('qrcode');
 
 const User = require('../models/User');
 const AccessRequest = require('../models/AccessRequest');
+const PasswordReset = require('../models/PasswordReset');
 const { verifyToken } = require('../middleware/auth');
 const { generateRequestsExcel } = require('../services/excelService');
 
@@ -99,7 +100,6 @@ router.post('/login', async (req, res) => {
     if (user.role === 'admin') {
       console.log(`[Admin Login Attempt] User: ${user.email} | 2FA Enabled: ${user.twoFactorEnabled} | Has Secret: ${Boolean(user.twoFactorSecret)}`);
 
-      // If 2FA is ALREADY enabled in DB -> Request 6-digit code directly
       if (user.twoFactorEnabled && user.twoFactorSecret) {
         return res.json({
           success: true,
@@ -109,7 +109,6 @@ router.post('/login', async (req, res) => {
         });
       }
 
-      // If 2FA is NOT enabled yet -> Reuse existing secret if available or create a new one
       let secretBase32 = user.twoFactorSecret;
       let otpAuthUrl;
 
@@ -121,7 +120,6 @@ router.post('/login', async (req, res) => {
         secretBase32 = secret.base32;
         otpAuthUrl = secret.otpauth_url;
 
-        // Save secret to database immediately
         user.twoFactorSecret = secretBase32;
         user.twoFactorEnabled = false;
         await user.save();
@@ -146,7 +144,6 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Standard Student Token Issue
     const token = jwt.sign(
       { id: user._id, email: user.email, name: user.name, role: user.role },
       process.env.JWT_SECRET || 'bmu_openroom_jwt_super_production_secret_key_2026_secure',
@@ -174,7 +171,41 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// 3. Verify 2FA & Lock Activation in MongoDB
+// 3. User Forgot Password Alert Endpoint
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const inputEmail = (req.body.email || '').toLowerCase().trim();
+    if (!inputEmail) {
+      return res.status(400).json({ success: false, message: 'Please enter your registered email.' });
+    }
+
+    const user = await User.findOne({ email: inputEmail });
+    const accessReq = await AccessRequest.findOne({
+      $or: [{ provisionedEmail: inputEmail }, { bmuEmail: inputEmail }]
+    });
+
+    const studentName = user ? user.name : (accessReq ? accessReq.name : 'Student');
+    const destinationBmu = accessReq ? accessReq.bmuEmail : (user ? user.email : inputEmail);
+
+    await PasswordReset.create({
+      email: inputEmail,
+      name: studentName,
+      bmuEmail: destinationBmu,
+      status: 'pending',
+      requestedAt: new Date()
+    });
+
+    res.json({
+      success: true,
+      message: 'Password reset alert logged. Campus Admin will review and email your credentials.'
+    });
+  } catch (err) {
+    console.error('[Forgot Password Error]:', err);
+    res.status(500).json({ success: false, message: 'Failed to record password request.' });
+  }
+});
+
+// 4. Verify 2FA & Lock Activation in MongoDB
 router.post('/verify-2fa', async (req, res) => {
   try {
     const { userId, code } = req.body;
@@ -187,7 +218,6 @@ router.post('/verify-2fa', async (req, res) => {
       return res.status(400).json({ success: false, message: '2FA session expired. Please log in again.' });
     }
 
-    // Validate TOTP code with time-drift allowance
     const verified = speakeasy.totp.verify({
       secret: user.twoFactorSecret,
       encoding: 'base32',
@@ -199,7 +229,6 @@ router.post('/verify-2fa', async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid 6-digit Authenticator code.' });
     }
 
-    // Mark 2FA as ENABLED permanently in MongoDB Atlas
     user.twoFactorEnabled = true;
     await user.save();
     console.log(`[2FA Activated] ✅ 2FA permanently locked in DB for ${user.email}`);
@@ -231,7 +260,7 @@ router.post('/verify-2fa', async (req, res) => {
   }
 });
 
-// 4. Admin Emergency 2FA Reset (Self-Service Recovery)
+// 5. Admin Emergency 2FA Reset
 router.post('/reset-2fa-emergency', async (req, res) => {
   try {
     const { email, password, recoveryKey } = req.body;
@@ -267,7 +296,6 @@ router.post('/reset-2fa-emergency', async (req, res) => {
       });
     }
 
-    // Reset 2FA status in database
     user.twoFactorSecret = null;
     user.twoFactorEnabled = false;
     await user.save();
@@ -284,7 +312,7 @@ router.post('/reset-2fa-emergency', async (req, res) => {
   }
 });
 
-// 5. Get Current User Profile (Live from DB)
+// 6. Get Current User Profile
 router.get('/me', verifyToken, async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select('-password -twoFactorSecret');
@@ -310,14 +338,14 @@ router.get('/me', verifyToken, async (req, res) => {
   }
 });
 
-// 6. Update Profile Customization
+// 7. Update Profile
 router.put('/profile', verifyToken, async (req, res) => {
   try {
     const { name, mobile, branch, batchYear, avatarColor, bio } = req.body;
     const user = await User.findById(req.user.id);
 
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User found error.' });
+      return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
     if (name && name.trim()) user.name = name.trim();
@@ -356,7 +384,7 @@ router.put('/profile', verifyToken, async (req, res) => {
   }
 });
 
-// 7. Change Password
+// 8. Change Password
 router.post('/change-password', verifyToken, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
